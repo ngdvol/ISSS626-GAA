@@ -1,0 +1,32 @@
+/* ISSS626 coursework site — light custom layer over the Quarto theme */
+
+:root {
+  --isss-accent: #2c6e8f;
+  --isss-accent-soft: #eaf2f6;
+}
+
+/* Give body text a bit more room to breathe */
+p, li { line-height: 1.65; }
+
+/* Section headers read as structure, not decoration */
+h1, h2 { letter-spacing: -0.01em; }
+h2 {
+  border-bottom: 2px solid var(--isss-accent-soft);
+  padding-bottom: 0.3rem;
+  margin-top: 2.2rem;
+}
+
+/* Code chunks: quieter background, clearer separation */
+div.sourceCode {
+  border-radius: 6px;
+  border: 1px solid rgba(128, 128, 128, 0.22);
+}
+
+/* Tables from knitr/kable */
+table { font-size: 0.94em; }
+
+/* Callout blocks a touch tighter */
+.callout { margin-top: 1.2rem; margin-bottom: 1.2rem; }
+
+/* Figure captions */
+figcaption { font-size: 0.88em; opacity: 0.8; }

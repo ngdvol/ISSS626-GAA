@@ -1,0 +1,27 @@
+---
+title: "ISSS626 Geospatial Analytics and Applications"
+subtitle: "Coursework website · SMU MITB · AY2026-27 August Term"
+---
+
+# Welcome
+
+This site collects my coursework for **ISSS626 Geospatial Analytics and Applications**,
+taught by Dr. Kam Tin Seong at SMU's School of Computing and Information Systems.
+
+Every exercise here is a reproducible [Quarto](https://quarto.org) document: the data,
+the R code, and the interpretation live in the same file, so any result on this site can
+be regenerated from source.
+
+## What you will find here
+
+| Section | Contents |
+|---|---|
+| **Hands-on Exercises** | Weekly guided exercises — importing, wrangling, and mapping geospatial data in R |
+| **In-class Exercises** | Extensions worked during the Saturday session |
+| **Take-home Exercises** | The three graded analytical assignments |
+
+## Toolchain
+
+`R 4.6.1` · `Quarto 1.10` · `sf` · `terra` · `tmap` · `tidyverse` · `spdep` · `spatstat`
+
+Source for this website: [github.com/ngdvol/ISSS626-GAA](https://github.com/ngdvol/ISSS626-GAA)

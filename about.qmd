@@ -1,0 +1,26 @@
+---
+title: "About"
+---
+
+## The course
+
+**ISSS626 Geospatial Analytics and Applications** introduces the concepts, principles and
+methods of geospatial analytics and their application to real-world problems — from spatial
+point pattern analysis and measures of spatial autocorrelation through to geographically
+weighted regression, accessibility modelling and spatial interaction models.
+
+The course emphasises four things:
+
+1. Performing geospatial data science tasks **programmatically** — importing, tidying,
+   transforming, projecting and processing geospatial data.
+2. **Visualising and describing** geographical patterns with appropriate geovisualisation
+   and thematic mapping techniques.
+3. Conducting analysis with appropriate **spatial statistics** and geospatial machine
+   learning methods.
+4. Communicating the entire pipeline in a **reproducible report**.
+
+## About this site
+
+Built with Quarto, version-controlled on GitHub, and deployed continuously. Each exercise
+page documents the analytical choices made, not just the code that ran — including, where
+relevant, what the result would have looked like had a different choice been made.

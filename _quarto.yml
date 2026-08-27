@@ -1,0 +1,56 @@
+project:
+  type: website
+  output-dir: _site
+
+website:
+  title: "ISSS626 Geospatial Analytics"
+  description: "Coursework website — SMU MITB, AY2026-27 August Term"
+  site-url: "https://isss626-gaa.vercel.app"
+  navbar:
+    background: primary
+    search: true
+    left:
+      - text: "Home"
+        href: index.qmd
+      - text: "Hands-on Exercises"
+        menu:
+          - text: "Hands-on Ex 1: Geospatial Data Wrangling & Choropleth Mapping"
+            href: Hands-on_Ex/Hands-on_Ex01/Hands-on_Ex01.qmd
+      - text: "In-class Exercises"
+        menu:
+          - text: "(none yet)"
+            href: index.qmd
+      - text: "Take-home Exercises"
+        menu:
+          - text: "(none yet)"
+            href: index.qmd
+    right:
+      - text: "About"
+        href: about.qmd
+      - icon: github
+        href: https://github.com/ngdvol/ISSS626-GAA
+        aria-label: GitHub
+
+format:
+  html:
+    theme:
+      light: cosmo
+      dark: darkly
+    css: styles.css
+    toc: true
+    toc-depth: 4
+    toc-title: "On this page"
+    code-fold: false
+    code-copy: true
+    code-overflow: wrap
+    code-line-numbers: false
+    fig-align: center
+    number-sections: true
+    smooth-scroll: true
+
+execute:
+  freeze: auto
+  warning: false
+  message: false
+
+editor: visual

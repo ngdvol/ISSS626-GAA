@@ -1,0 +1,17 @@
+# Quarto working cache
+/.quarto/
+*_cache/
+**/*.quarto_ipynb
+
+# _site/ and _freeze/ are tracked on purpose: the host serves the static
+# files in _site/, and _freeze/ holds computed results so the site rebuilds
+# without re-running R.
+
+# R
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+
+# macOS
+.DS_Store
