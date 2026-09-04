@@ -30,3 +30,31 @@ table { font-size: 0.94em; }
 
 /* Figure captions */
 figcaption { font-size: 0.88em; opacity: 0.8; }
+
+/* Page TOC: keep every level expanded.
+   Quarto marks nested lists .collapse so they only appear once you scroll into
+   that section; this shows the full structure from the top of the page. */
+#TOC ul.collapse {
+  display: block !important;
+  visibility: visible !important;
+  height: auto !important;
+}
+
+/* Slightly tighter spacing so a deep TOC still fits the sidebar */
+#TOC ul ul { margin-left: 0.55rem; }
+#TOC ul ul li { line-height: 1.35; margin-top: 0.15rem; }
+#TOC ul ul ul a { font-size: 0.92em; opacity: 0.9; }
+
+/* TOC scrollbar: thin and only visible on hover, so a long list stays tidy */
+#quarto-margin-sidebar {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+#quarto-margin-sidebar:hover { scrollbar-color: rgba(128, 128, 128, 0.4) transparent; }
+#quarto-margin-sidebar::-webkit-scrollbar { width: 7px; }
+#quarto-margin-sidebar::-webkit-scrollbar-track { background: transparent; }
+#quarto-margin-sidebar::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px;
+}
+#quarto-margin-sidebar:hover::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, 0.4); }

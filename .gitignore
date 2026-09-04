@@ -15,3 +15,7 @@
 
 # macOS
 .DS_Store
+
+# Stray R graphics device output
+Rplots.pdf
+**/Rplots.pdf

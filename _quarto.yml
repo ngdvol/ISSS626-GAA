@@ -16,6 +16,8 @@ website:
         menu:
           - text: "Hands-on Ex 1: Geospatial Data Wrangling & Choropleth Mapping"
             href: Hands-on_Ex/Hands-on_Ex01/Hands-on_Ex01.qmd
+          - text: "Hands-on Ex 2: Spatial Point Patterns Analysis"
+            href: Hands-on_Ex/Hands-on_Ex02/Hands-on_Ex02.qmd
       - text: "In-class Exercises"
         menu:
           - text: "(none yet)"
@@ -40,6 +42,7 @@ format:
     toc: true
     toc-depth: 4
     toc-title: "On this page"
+    toc-expand: true
     code-fold: false
     code-copy: true
     code-overflow: wrap
@@ -47,6 +50,10 @@ format:
     fig-align: center
     number-sections: true
     smooth-scroll: true
+    grid:
+      body-width: 820px
+      margin-width: 345px
+      gutter-width: 1.4rem
 
 execute:
   freeze: auto
