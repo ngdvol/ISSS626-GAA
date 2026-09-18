@@ -455,15 +455,14 @@ plot(L_tm.csr, . - r ~ r, xlab = "d", ylab = "L(d) - r", xlim = c(0, 500))
 
 The reproduction above is the assignment. This part records what I noticed while working
 through it: which choices the chapters let the software make silently, whether the conclusions
-survive when those choices are changed, and what changes when the week's readings and slides
-are actually applied rather than read. The sections follow that order.
+survive when those choices are changed, and what the week's readings and slides add when they
+are applied to this data. The sections follow that order.
 
 ## Reviewing the chapters' choices
 
 ### Checking for coincident points
 
-This is a prerequisite rather than a criticism, and it belongs before any of the distance
-methods run. Baddeley, Rubak and Turner (2015), listed in the Lesson 2 references and written
+This check belongs before any of the distance methods run. Baddeley, Rubak and Turner (2015), listed in the Lesson 2 references and written
 by the authors of spatstat, set out why in section 3.4.4:
 
 > Duplication of points is important, because statistical methodology for spatial point
@@ -475,8 +474,8 @@ by the authors of spatstat, set out why in section 3.4.4:
 > dealing with them if they are present.
 
 Coincident points are plausible for this data, since several childcare centres can operate in
-the same mall or HDB block and geocoding would return one coordinate for all of them. So the
-check is worth running rather than assuming.
+the same mall or HDB block and geocoding would return one coordinate for all of them. So it is worth
+running the check.
 
 ```{r}
 c(points = npoints(childcareSG_ppp),
@@ -679,7 +678,7 @@ the surface into many separate peaks, while `bw.CvL` merges them into a few larg
 statement "childcare is concentrated in the central and eastern regions" is robust, but any
 claim about a *particular* hotspot is a claim about the bandwidth as much as about the data.
 
-The trade-off can be measured rather than eyeballed. The coefficient of variation of the
+The trade-off can also be measured. The coefficient of variation of the
 density values says how uneven each surface is.
 
 ```{r}
@@ -721,8 +720,7 @@ sparse area stands alone.
 
 In the comparison plotted in Part 1, the fixed surface smooths the dense corridor into one
 continuous mass while the adaptive surface keeps more local structure. Which one is preferable
-depends on what you are asking, so the choice should be stated rather than left at
-the default.
+depends on what you are asking, so the choice should be stated explicitly.
 
 ### Do the functions agree?
 
@@ -1071,9 +1069,9 @@ c(subzone_polygons = nrow(mpsz_pop),
 
 Every one of the 332 subzone names matches the census table, but only 226 carry a resident
 count. The other 106 are places like Raffles Place, Boat Quay, Jurong Island and the southern
-islands, where the census reports no resident population because nobody lives there. Treating
-those as zero is correct rather than a gap in the join, and the total of 183,100 children
-agrees with the published national figure.
+islands, where the census reports no resident population because nobody lives there. Those subzones should be
+zero, so this is not a gap in the join, and the total of 183,100 children agrees with the
+published national figure.
 
 The next step turns this into a surface: rasterise the subzone densities, crop to the town, and
 scale the values so the surface integrates to the number of centres actually observed. That
@@ -1265,7 +1263,7 @@ sensitivity to be.
 # References
 
 Grouped as the Lesson 2 page groups them, with a note on where each one is used here. Sources
-listed on that page but not drawn on are left out rather than padded in.
+listed on that page but not used here are left out.
 
 ## Hands-on chapters
 
@@ -1284,8 +1282,7 @@ listed on that page but not drawn on are left out rather than padded in.
 - Yin, P. (2020). *Kernels and Density Estimation*. The Geographic Information Science &
   Technology Body of Knowledge, 1st Quarter 2020 Edition, John P. Wilson (ed.). DOI:
   10.22224/gistbok/2020.1.12.
-  The bias-variance framing behind the bandwidth comparison, which I measure rather than
-  restate.
+  The bias-variance framing behind the bandwidth comparison, which I measure on this data.
 - Chapter 4 *Spatial distribution of points* of Floch, J.M., Marcon, E. and Puech, F. (2018)
   *Handbook of Spatial Analysis: Theory and Application with R*.
   Section 4.3.2 states the identification problem between first- and second-order effects that

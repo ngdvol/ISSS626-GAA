@@ -315,6 +315,14 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     <a class="dropdown-item" href="../../Hands-on_Ex/Hands-on_Ex02/Hands-on_Ex02.html">
  <span class="dropdown-text">Hands-on Ex 2: Spatial Point Patterns Analysis</span></a>
   </li>  
+        <li>
+    <a class="dropdown-item" href="../../Hands-on_Ex/Hands-on_Ex03/Hands-on_Ex03.html">
+ <span class="dropdown-text">Hands-on Ex 3: Spatio-Temporal Point Patterns Analysis</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="../../Hands-on_Ex/Hands-on_Ex04/Hands-on_Ex04.html">
+ <span class="dropdown-text">Hands-on Ex 4: Spatial Weights and Applications</span></a>
+  </li>  
     </ul>
   </li>
   <li class="nav-item dropdown ">
@@ -1151,16 +1159,16 @@ Done.</code></pre>
 </section>
 <section id="part-3-beyond-the-chapters" class="level1" data-number="5">
 <h1 data-number="5"><span class="header-section-number">5</span> Part 3: Beyond the chapters</h1>
-<p>The reproduction above is the assignment. This part records what I noticed while working through it: which choices the chapters let the software make silently, whether the conclusions survive when those choices are changed, and what changes when the week’s readings and slides are actually applied rather than read. The sections follow that order.</p>
+<p>The reproduction above is the assignment. This part records what I noticed while working through it: which choices the chapters let the software make silently, whether the conclusions survive when those choices are changed, and what the week’s readings and slides add when they are applied to this data. The sections follow that order.</p>
 <section id="reviewing-the-chapters-choices" class="level2" data-number="5.1">
 <h2 data-number="5.1" class="anchored" data-anchor-id="reviewing-the-chapters-choices"><span class="header-section-number">5.1</span> Reviewing the chapters’ choices</h2>
 <section id="checking-for-coincident-points" class="level3" data-number="5.1.1">
 <h3 data-number="5.1.1" class="anchored" data-anchor-id="checking-for-coincident-points"><span class="header-section-number">5.1.1</span> Checking for coincident points</h3>
-<p>This is a prerequisite rather than a criticism, and it belongs before any of the distance methods run. Baddeley, Rubak and Turner (2015), listed in the Lesson 2 references and written by the authors of spatstat, set out why in section 3.4.4:</p>
+<p>This check belongs before any of the distance methods run. Baddeley, Rubak and Turner (2015), listed in the Lesson 2 references and written by the authors of spatstat, set out why in section 3.4.4:</p>
 <blockquote class="blockquote">
 <p>Duplication of points is important, because statistical methodology for spatial point processes (as used in this book) is based largely on assumption that processes are simple, i.e.&nbsp;that points of the process can never be coincident. When the data have coincident points, some statistical procedures designed for simple point processes will be severely affected. For example, the pair correlation function will have an infinite value at distance zero. It is strongly advisable to check for duplicated points and to decide on a strategy for dealing with them if they are present.</p>
 </blockquote>
-<p>Coincident points are plausible for this data, since several childcare centres can operate in the same mall or HDB block and geocoding would return one coordinate for all of them. So the check is worth running rather than assuming.</p>
+<p>Coincident points are plausible for this data, since several childcare centres can operate in the same mall or HDB block and geocoding would return one coordinate for all of them. So it is worth running the check.</p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb80"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb80-1"><a href="#cb80-1" aria-hidden="true" tabindex="-1"></a><span class="fu">c</span>(<span class="at">points =</span> <span class="fu">npoints</span>(childcareSG_ppp),</span>
 <span id="cb80-2"><a href="#cb80-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">unique_locations =</span> <span class="fu">npoints</span>(<span class="fu">unique</span>(childcareSG_ppp)),</span>
@@ -1321,7 +1329,7 @@ nn_distances_of_zero
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb92"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb92-1"><a href="#cb92-1" aria-hidden="true" tabindex="-1"></a><span class="fu">par</span>(<span class="at">mfrow =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">1</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 <p>The broad pattern is stable across all three: the same dense central-east corridor, the same relative voids in the north. What changes is the granularity. The two small bandwidths break the surface into many separate peaks, while <code>bw.CvL</code> merges them into a few large blobs. So the statement “childcare is concentrated in the central and eastern regions” is robust, but any claim about a <em>particular</em> hotspot is a claim about the bandwidth as much as about the data.</p>
-<p>The trade-off can be measured rather than eyeballed. The coefficient of variation of the density values says how uneven each surface is.</p>
+<p>The trade-off can also be measured. The coefficient of variation of the density values says how uneven each surface is.</p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb93"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb93-1"><a href="#cb93-1" aria-hidden="true" tabindex="-1"></a>cv_im <span class="ot">&lt;-</span> <span class="cf">function</span>(x) { v <span class="ot">&lt;-</span> <span class="fu">as.vector</span>(x<span class="sc">$</span>v); v <span class="ot">&lt;-</span> v[<span class="sc">!</span><span class="fu">is.na</span>(v)]; <span class="fu">sd</span>(v) <span class="sc">/</span> <span class="fu">mean</span>(v) }</span>
 <span id="cb93-2"><a href="#cb93-2" aria-hidden="true" tabindex="-1"></a><span class="fu">c</span>(<span class="st">`</span><span class="at">bw.ppl</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">cv_im</span>(kde_ppl), <span class="st">`</span><span class="at">bw.diggle</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">cv_im</span>(kde_childcareSG_km), <span class="st">`</span><span class="at">bw.CvL</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">cv_im</span>(kde_cvl))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
@@ -1341,7 +1349,7 @@ nn_distances_of_zero
 <section id="why-adaptive-suits-this-data" class="level3" data-number="5.1.7">
 <h3 data-number="5.1.7" class="anchored" data-anchor-id="why-adaptive-suits-this-data"><span class="header-section-number">5.1.7</span> Why adaptive suits this data</h3>
 <p>The default <code>density()</code> uses a fixed bandwidth: every point spreads its influence to the same radius. Adaptive bandwidth (<code>adaptive.density</code>) lets the radius shrink where points are dense. For childcare, whose supply tracks population density, adaptive is the more defensible assumption: a centre in a dense town competes with neighbours close by, while one in a sparse area stands alone.</p>
-<p>In the comparison plotted in Part 1, the fixed surface smooths the dense corridor into one continuous mass while the adaptive surface keeps more local structure. Which one is preferable depends on what you are asking, so the choice should be stated rather than left at the default.</p>
+<p>In the comparison plotted in Part 1, the fixed surface smooths the dense corridor into one continuous mass while the adaptive surface keeps more local structure. Which one is preferable depends on what you are asking, so the choice should be stated explicitly.</p>
 </section>
 <section id="do-the-functions-agree" class="level3" data-number="5.1.8">
 <h3 data-number="5.1.8" class="anchored" data-anchor-id="do-the-functions-agree"><span class="header-section-number">5.1.8</span> Do the functions agree?</h3>
@@ -1661,7 +1669,7 @@ $`Choa Chu Kang`
               183100 </code></pre>
 </div>
 </div>
-<p>Every one of the 332 subzone names matches the census table, but only 226 carry a resident count. The other 106 are places like Raffles Place, Boat Quay, Jurong Island and the southern islands, where the census reports no resident population because nobody lives there. Treating those as zero is correct rather than a gap in the join, and the total of 183,100 children agrees with the published national figure.</p>
+<p>Every one of the 332 subzone names matches the census table, but only 226 carry a resident count. The other 106 are places like Raffles Place, Boat Quay, Jurong Island and the southern islands, where the census reports no resident population because nobody lives there. Those subzones should be zero, so this is not a gap in the join, and the total of 183,100 children agrees with the published national figure.</p>
 <p>The next step turns this into a surface: rasterise the subzone densities, crop to the town, and scale the values so the surface integrates to the number of centres actually observed. That last step is what makes it a candidate intensity for the point process rather than just a population map.</p>
 <div class="cell">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb126"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb126-1"><a href="#cb126-1" aria-hidden="true" tabindex="-1"></a>kids_rast <span class="ot">&lt;-</span> terra<span class="sc">::</span><span class="fu">rasterize</span>(terra<span class="sc">::</span><span class="fu">vect</span>(mpsz_pop),</span>
@@ -1761,7 +1769,7 @@ $`Choa Chu Kang`
 </section>
 <section id="references" class="level1" data-number="7">
 <h1 data-number="7"><span class="header-section-number">7</span> References</h1>
-<p>Grouped as the Lesson 2 page groups them, with a note on where each one is used here. Sources listed on that page but not drawn on are left out rather than padded in.</p>
+<p>Grouped as the Lesson 2 page groups them, with a note on where each one is used here. Sources listed on that page but not used here are left out.</p>
 <section id="hands-on-chapters" class="level2" data-number="7.1">
 <h2 data-number="7.1" class="anchored" data-anchor-id="hands-on-chapters"><span class="header-section-number">7.1</span> Hands-on chapters</h2>
 <ul>
@@ -1772,7 +1780,7 @@ $`Choa Chu Kang`
 <h2 data-number="7.2" class="anchored" data-anchor-id="core-readings"><span class="header-section-number">7.2</span> Core readings</h2>
 <ul>
 <li>Yuan, Y., Qiang, Y., Bin Asad, K., and Chow, T. E. (2020). <em>Point Pattern Analysis</em>. The Geographic Information Science &amp; Technology Body of Knowledge, 1st Quarter 2020 Edition, John P. Wilson (ed.). DOI: 10.22224/gistbok/2020.1.13. Source of the warning that CSR is a weak null for events that track a covariate, which drives the section on choosing a null hypothesis.</li>
-<li>Yin, P. (2020). <em>Kernels and Density Estimation</em>. The Geographic Information Science &amp; Technology Body of Knowledge, 1st Quarter 2020 Edition, John P. Wilson (ed.). DOI: 10.22224/gistbok/2020.1.12. The bias-variance framing behind the bandwidth comparison, which I measure rather than restate.</li>
+<li>Yin, P. (2020). <em>Kernels and Density Estimation</em>. The Geographic Information Science &amp; Technology Body of Knowledge, 1st Quarter 2020 Edition, John P. Wilson (ed.). DOI: 10.22224/gistbok/2020.1.12. The bias-variance framing behind the bandwidth comparison, which I measure on this data.</li>
 <li>Chapter 4 <em>Spatial distribution of points</em> of Floch, J.M., Marcon, E. and Puech, F. (2018) <em>Handbook of Spatial Analysis: Theory and Application with R</em>. Section 4.3.2 states the identification problem between first- and second-order effects that limits the whole exercise; section 4.5.1 sets out the Kd function I describe but do not run.</li>
 </ul>
 </section>
