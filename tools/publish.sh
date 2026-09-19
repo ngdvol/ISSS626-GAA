@@ -19,13 +19,22 @@ PUBLISH=(
   .gitignore
   ISSS626-GAA.Rproj
   Hands-on_Ex
+  In-class_Ex
   _freeze
   _site
   tools
 )
 
-# Anything matching these must never be staged, whatever else happens.
-DENY='(^|/)(CLAUDE\.md|_notes/|\.env|.*\.Rhistory|.*\.RData|Rplots\.pdf|\.DS_Store)$'
+# Anything matching the deny list must never be staged, whatever else happens.
+# The patterns live in .git/info/publish-deny, which sits outside the working
+# tree and is therefore never published. Keeping them there means this script
+# names no private filename. Fails closed if the list is missing.
+DENY_FILE=".git/info/publish-deny"
+if [ ! -s "$DENY_FILE" ]; then
+  echo "ABORTED: $DENY_FILE is missing or empty; refusing to publish without a deny list."
+  exit 1
+fi
+DENY="$(grep -vE '^[[:space:]]*(#|$)' "$DENY_FILE" | paste -sd'|' -)"
 
 echo "→ rendering…"
 quarto render >/dev/null

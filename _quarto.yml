@@ -1,6 +1,11 @@
 project:
   type: website
   output-dir: _site
+  render:
+    - index.qmd
+    - about.qmd
+    - Hands-on_Ex/**/*.qmd
+    - In-class_Ex/**/*.qmd
 
 website:
   title: "ISSS626 Geospatial Analytics"
@@ -24,8 +29,8 @@ website:
             href: Hands-on_Ex/Hands-on_Ex04/Hands-on_Ex04.qmd
       - text: "In-class Exercises"
         menu:
-          - text: "(none yet)"
-            href: index.qmd
+          - text: "In-class Ex 4: Spatial Weights and Applications"
+            href: In-class_Ex/In-class_Ex04/In-class_Ex04.qmd
       - text: "Take-home Exercises"
         menu:
           - text: "(none yet)"
