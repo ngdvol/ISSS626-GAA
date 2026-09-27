@@ -1,0 +1,26 @@
+/* The Executive Summary runs 10 dense slides in a 1280x720 frame, and revealjs clips
+   rather than scales: anything past the fold simply disappears. Reveal's default base
+   font is 40px, at which every slide here overran. Scaling the base to 33px plus
+   slightly tighter leading brings the content inside the frame while staying legible
+   when projected. */
+
+.reveal {
+  font-size: 33px;
+}
+
+.reveal p,
+.reveal li {
+  line-height: 1.28;
+  margin-bottom: 0.32em;
+}
+
+.reveal ul,
+.reveal ol {
+  margin-top: 0.3em;
+  margin-bottom: 0.3em;
+}
+
+/* Keep the two-column layouts from inheriting a wide gutter */
+.reveal .columns {
+  gap: 0.8em;
+}

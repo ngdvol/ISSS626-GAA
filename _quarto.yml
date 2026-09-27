@@ -6,6 +6,7 @@ project:
     - about.qmd
     - Hands-on_Ex/**/*.qmd
     - In-class_Ex/**/*.qmd
+    - Take-home_Ex/**/*.qmd
 
 website:
   title: "ISSS626 Geospatial Analytics"
@@ -35,8 +36,10 @@ website:
             href: In-class_Ex/In-class_Ex04/In-class_Ex04.qmd
       - text: "Take-home Exercises"
         menu:
-          - text: "(none yet)"
-            href: index.qmd
+          - text: "Take-home Ex 1: Technical Report"
+            href: Take-home_Ex/Take-home_Ex01/Take-home_Ex01.qmd
+          - text: "Take-home Ex 1: Executive Summary"
+            href: Take-home_Ex/Take-home_Ex01-slides/index.qmd
     right:
       - text: "About"
         href: about.qmd

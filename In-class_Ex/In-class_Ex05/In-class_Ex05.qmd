@@ -1,0 +1,257 @@
+---
+title: "In-class Exercise 5"
+subtitle: "Emerging Hot Spot Analysis"
+author: "An Loc"
+date: "26 September 2026"
+date-modified: "last-modified"
+date-format: "D MMM YYYY"
+format:
+  html:
+    toc: true
+    toc-depth: 4
+    toc-expand: true
+    code-copy: true
+    fig-width: 9
+    fig-height: 7
+execute:
+  echo: true
+  eval: true
+  warning: false
+  message: false
+  freeze: true
+---
+
+# Getting started
+
+```{r}
+pacman::p_load(sf, sfdep, spdep, tmap, plotly, tidyverse)
+```
+
+# The data
+
+## County boundaries
+
+```{r}
+hunan <- st_read(dsn = "data/geospatial", layer = "Hunan", quiet = TRUE) %>%
+  st_transform(crs = 32649)
+
+nrow(hunan)
+```
+
+## Development indicators for 2012
+
+```{r}
+hunan2012 <- read_csv("data/aspatial/Hunan_2012.csv")
+
+hunan_GDPPC <- hunan %>%
+  left_join(hunan2012, by = "County") %>%
+  select(NAME_2, ID_3, NAME_3, ENGTYPE_3,
+         Shape_Leng, Shape_Area, County, GDPPC, GIO)
+
+names(hunan_GDPPC)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+The block uses three functions:
+
+``` r
+read_csv(...)                   # readr
+left_join(..., by = "County")   # dplyr
+select(...)                     # dplyr
+```
+
+- `read_csv()` reads the 29 development indicators for 2012.
+- `left_join()` matches each boundary to its row of indicators on the county name. All 88 names match, so no row is lost.
+- `select()` keeps nine of the columns the join produces: the six geography fields, plus `County`, `GDPPC` and `GIO`. The other 26 indicators are dropped because only GDP per capita is analysed here.
+
+`select()` keeps the geometry column automatically, so the result is still an sf object.
+:::
+
+# Spatial weights
+
+## Queen contiguity, row-standardised
+
+```{r}
+wm_q <- hunan_GDPPC %>%
+  mutate(nb = st_contiguity(geometry),
+         wt = st_weights(nb, style = "W"),
+         .before = 1)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+The block uses three functions:
+
+``` r
+st_contiguity(geometry)        # sfdep
+st_weights(nb, style = "W")    # sfdep
+mutate(..., .before = 1)       # dplyr
+```
+
+- `st_contiguity()` builds the neighbour list from the polygons. Queen contiguity is its default, so counties meeting only at a corner count as neighbours. `queen = FALSE` gives Rook contiguity instead, which drops the mean neighbour count from 5.09 to 5.00.
+- `st_weights()` turns the neighbour list into weights. `style = "W"` row-standardises them so each county's weights sum to 1 (default setting). The value is case-sensitive: `"w"` raises `Style w invalid`.
+- `mutate()` adds `nb` and `wt` as list-columns, and `.before = 1` places them ahead in front of the other attributes.
+
+The result is an sf object rather than a bare weights matrix. `sfdep` functions read `nb` and `wt` directly.
+:::
+
+```{r}
+wm_q %>%
+  st_drop_geometry() %>%
+  summarise(counties = n(), mean_neighbours = mean(lengths(nb)))
+```
+
+## Reading the neighbour list
+
+::: {.callout-note collapse="false" title="How to read nb and wt"}
+`nb` and `wt` are list-columns, so each cell holds a vector rather than a single value. Row 1 is Anxiang:
+
+| Column | Cell 1 | Reads as |
+|------------------------|------------------------|------------------------|
+| `nb` | `c(2, 3, 4, 57, 85)` | rows 2, 3, 4, 57 and 85 of `wm_q` are Anxiang's neighbours |
+| `wt` | `c(0.2, 0.2, 0.2, 0.2, 0.2)` | the weight for each of those five neighbours, in the same order |
+
+- `nb` stores **row positions inside `wm_q`**, not county names and not `ID_3` values. Row 1 is Anxiang, so the value 2 points at row 2.
+- `wt` is always the same length as `nb`, one weight per neighbour.
+- Each weight is 1 divided by the number of neighbours, because the weights are row-standardised. Anxiang has 5 neighbours so each gets 0.2, Jinshi in row 3 has 4 so each gets 0.25, and the six neighbours in row 9 each get 0.1667. Every county's weights sum to 1.
+- RStudio's viewer wraps the values in quotes, as `c("2", "3", "4", ...)`. That is how it displays list-column elements, not the data type.
+:::
+
+# Global measures of spatial autocorrelation
+
+## Moran's I
+
+```{r}
+moranI <- global_moran(wm_q$GDPPC, wm_q$nb, wm_q$wt)
+
+glimpse(moranI)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+The block uses two functions:
+
+``` r
+global_moran(wm_q$GDPPC, wm_q$nb, wm_q$wt)   # sfdep
+glimpse(...)                                 # tibble
+```
+
+- `global_moran()` takes the variable, then the neighbour list, then the weights. It returns a list of two numbers, and reproduces the value of `spdep::moran()`.
+- `glimpse()` prints one line per element.
+
+`I` is **0.301**, against a null expectation of −1/(n−1) = −0.011, so GDP per capita is positively spatially autocorrelated: neighbouring counties tend to hold similar values. The value carries no p-value of its own, because `global_moran()` computes the statistic only. `global_moran_test()` adds an analytic test and `global_moran_perm()` a permutation one.
+
+`K` is the kurtosis of the variable, **7.64**. A normal distribution has a kurtosis of 3, so GDP per capita is strongly heavy-tailed. This matters: the randomisation variance of Moran's I is a function of the kurtosis.
+:::
+
+## Moran's I by permutation
+
+```{r}
+set.seed(1234)
+
+moranI_perm <- global_moran_perm(wm_q$GDPPC, wm_q$nb, wm_q$wt,
+                                 nsim = 99)
+
+moranI_perm
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+The block uses two functions:
+
+``` r
+set.seed(1234)                                  # base
+global_moran_perm(..., nsim = 99)               # sfdep
+```
+
+- `set.seed()` fixes the random draw. The permutation test shuffles the values, so without a seed the p-value changes on every run.
+- `global_moran_perm()` wraps `spdep::moran.mc()`, which builds a reference distribution by shuffling the values across the counties while the weights stay fixed.
+
+**The number of simulations is always `nsim + 1`.** The reference distribution holds the `nsim` permutations plus the observed statistic, which spdep stores last. So `nsim = 99` produces 100 values, and the output says so:
+
+```         
+number of simulations + 1: 100
+```
+
+That "+1" sets the smallest p-value the test can report, which is 1/(nsim + 1) = 0.01. A permutation test cannot return anything more extreme than that, however strong the pattern.
+:::
+
+⚠️ On this data the two-sided branch returns `p < 2.2e-16`, the stored value being exactly 0. That sits below the 0.01 floor, so it cannot be a real permutation p-value?
+
+# Local measures of spatial autocorrelation
+
+## Local Moran's I
+
+```{r}
+set.seed(1234)
+
+lisa <- wm_q %>%
+  mutate(local_moran = local_moran(GDPPC, nb, wt, nsim = 99), .before = 1) %>%
+  unnest(local_moran)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+The block uses three functions:
+
+``` r
+local_moran(GDPPC, nb, wt, nsim = 99)   # sfdep
+mutate(..., .before = 1)                # dplyr
+unnest(local_moran)                     # tidyr
+```
+
+- `local_moran()` computes the statistic for every county in one call and returns a list per county. It takes the same three arguments as the global version, and `nsim` behaves the same way.
+- `mutate()` stores that list in a new column, and `.before = 1` puts it first.
+- `unnest()` expands the list column, giving each county 11 new columns. The ones that matter here are `ii` (the local statistic), `z_ii`, `p_ii`, `p_ii_sim` and `p_folded_sim`, together with `mean` and `median`, which hold the quadrant labels that the cluster map colours.
+
+The result is an sf object of 88 rows and 24 columns.
+:::
+
+## Reading the quadrant columns
+
+::: {.callout-note collapse="false" title="How to read mean, median and pysal"}
+These three columns hold quadrant label for every county:
+
+- `mean` compares each county against the **mean** of GDPPC and the mean of its spatial lag. Above both is High-High, below both is Low-Low, and a county above one and below the other is High-Low or Low-High.
+- `median` applies the identical rule using the **median** as the cut point.
+- `pysal` is PySAL's label for the same classification.
+
+| Cut point | High-High | High-Low | Low-High | Low-Low |
+|-----------|-----------|----------|----------|---------|
+| `mean`    | 21        | 11       | 13       | 43      |
+| `median`  | 31        | 13       | 13       | 31      |
+| `pysal`   | 21        | 11       | 13       | 43      |
+:::
+
+## LISA cluster map
+
+```{r}
+#| fig-width: 9
+#| fig-height: 9
+lisa_sig <- lisa %>%
+  filter(p_ii_sim < 0.05)
+
+tmap_mode("plot")
+
+tm_shape(lisa) +
+  tm_polygons() +
+  tm_borders(fill_alpha = 0.5) +
+  tm_shape(lisa_sig) +
+  tm_polygons(fill = "mean",
+              fill.legend = tm_legend(text.size = 1.15, width = 6)) +
+  tm_borders(fill_alpha = 0.4) +
+  tm_layout(legend.title.size = 1.25)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+The block uses four functions:
+
+``` r
+filter(p_ii_sim < 0.05)   # dplyr
+tmap_mode("plot")         # tmap
+tm_shape(...)             # tmap
+tm_polygons(...)          # tmap
+```
+
+- `filter()` keeps the counties whose permutation p-value is below 0.05. These are the clusters. The other are not distinguishable from spatial randomness.
+- `tmap_mode("plot")` switches tmap from interactive to static output.
+- The map is built in **two layers**. The first `tm_shape(lisa)` draws all 88 counties as a light backdrop, so the clusters can be read against the whole province. The second `tm_shape(lisa_sig)` draws only the significant counties on top, coloured by quadrant.
+
+Both layers are needed. Without the first, the coloured counties float with nothing to place them against.
+:::

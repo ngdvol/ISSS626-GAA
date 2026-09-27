@@ -1,0 +1,16 @@
+project:
+  type: default
+  output-dir: _site
+
+format:
+  revealjs:
+    theme: simple
+    slide-number: true
+    incremental: false
+    embed-resources: true
+    fig-align: center
+    code-fold: true
+    code-line-numbers: false
+    reference-location: document
+    width: 1280
+    height: 720

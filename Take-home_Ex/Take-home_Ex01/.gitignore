@@ -1,0 +1,3 @@
+# data/rawdata/ is committed: the Kaggle source is CC0 public domain, so it can be
+# redistributed, and Task 1 requires the filtering trail to be reproducible.
+*_cache/

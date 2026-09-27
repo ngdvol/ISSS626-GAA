@@ -1,0 +1,25 @@
+hour,total,total_pct,peak_road,peak_class,peak_density
+0,8.647565626483171e-4,3.5,Bangkok-Chonburi Motorway,motorway,1e-5
+1,0.0011181225176966005,4.5,Bangkok-Chonburi Motorway,motorway,1.21e-5
+2,0.0012033507538311383,4.8,Bangkok-Chonburi Motorway,motorway,9.47e-6
+3,0.0013123276904116583,5.2,Bangkok-Chonburi Motorway,motorway,6.53e-6
+4,0.0012166822231821544,4.9,Industrial Ring Road,primary,6.34e-6
+5,0.0011555772780275921,4.6,Industrial Ring Road,primary,7.61e-6
+6,0.0011815033634483309,4.7,Industrial Ring Road,primary,9.45e-6
+7,0.0010896352734340537,4.4,Industrial Ring Road,primary,7.82e-6
+8,9.467920785691796e-4,3.8,Chaloem Mahanakhon Expressway,motorway,4.11e-6
+9,8.52447794194258e-4,3.4,Kanchanaphisek Road,motorway,4.04e-6
+10,7.47378404348197e-4,3,NA,motorway_link,4.12e-6
+11,6.617496597356433e-4,2.6,Motorway M82 (Bang Khun Thian – Ban Phaeo),motorway,5.12e-6
+12,6.261476141884339e-4,2.5,Motorway M82 (Bang Khun Thian – Ban Phaeo),motorway,5.29e-6
+13,6.54813961165736e-4,2.6,Motorway M82 (Bang Khun Thian – Ban Phaeo),motorway,3.44e-6
+14,7.930231514452536e-4,3.2,Bangkok-Chonburi Motorway,motorway,3.76e-6
+15,9.676930567957747e-4,3.9,Bangkok-Chonburi Motorway,motorway,3.75e-6
+16,0.001134120163278156,4.5,Kanchanapisek Expressway,motorway,3.35e-6
+17,0.001257783488139881,5,Kanchanapisek Expressway,motorway,6.73e-6
+18,0.0013442041544396406,5.4,Kanchanaphisek Road,motorway,7.18e-6
+19,0.0013111509181201269,5.2,Kanchanaphisek Road,motorway,7.95e-6
+20,0.001225211658312517,4.9,Bangkok-Chonburi Motorway,motorway,9.1e-6
+21,0.0011883760077484025,4.7,Bangkok-Chonburi Motorway,motorway,1.35e-5
+22,0.0012364541000175007,4.9,Bangkok-Chonburi Motorway,motorway,1.4e-5
+23,9.358583929715146e-4,3.7,Bangkok-Chonburi Motorway,motorway,1e-5

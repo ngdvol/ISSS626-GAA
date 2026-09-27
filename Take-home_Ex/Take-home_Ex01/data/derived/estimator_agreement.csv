@@ -1,0 +1,4 @@
+pair,correlation,top50_shared
+simple vs discontinuous,0.973,44
+discontinuous vs continuous,0.995,49
+simple vs continuous,0.975,44

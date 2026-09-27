@@ -20,6 +20,7 @@ PUBLISH=(
   ISSS626-GAA.Rproj
   Hands-on_Ex
   In-class_Ex
+  Take-home_Ex
   _freeze
   _site
   tools
