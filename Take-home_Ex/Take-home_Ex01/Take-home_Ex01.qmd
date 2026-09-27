@@ -192,7 +192,7 @@ Four layers are read and one field is derived.
 
 ## Record filtering
 
-The source file covers four years and the whole country. Each filter below is applied in turn, and the number of records removed is recorded so that the analysis set can be audited from the raw file.
+The source file covers four years and the whole country. Each filter below is applied in turn, and the number of records removed is recorded so that the analysis set can be audited from the raw file. The coordinates are converted to a projected system with `st_as_sf()` and `st_transform()`, and each record is tested against the six province polygons with `st_intersects()`.
 
 ```{r}
 #| label: filtering-trail
@@ -241,7 +241,7 @@ tibble(points          = nrow(accidents),
        max_at_one_spot = max(table(paste(co[,1], co[,2])))) |> kable()
 ```
 
-Repeated coordinates are **not** duplicate records. Only two rows repeat on coordinate *and* timestamp. The rest are genuine separate accidents at the same location, which is expected at junctions. They are retained, but they must be displaced before any distance-based method is applied, because exact ties inflate short-range statistics without limit. @sec-jitter quantifies that effect on the network K function.
+Repeated coordinates are **not** duplicate records, and they are found by reading each coordinate pair with `st_coordinates()` and counting repeats with `duplicated()`. Only two rows repeat on coordinate *and* timestamp. The rest are genuine separate accidents at the same location, which is expected at junctions. They are retained, but they must be displaced before any distance-based method is applied, because exact ties inflate short-range statistics without limit. @sec-jitter quantifies that effect on the network K function.
 
 ## Repeat coordinates and the reporting artefact {#sec-repeat}
 
@@ -353,7 +353,7 @@ bind_rows(
   window_rate("2022-01-01", "2022-01-04", "New Year, January")) |> kable()
 ```
 
-Accidents run at roughly twice the daily baseline during Songkran and three times during the final days of December. **Eight of the ten worst days of 2022 fall inside these two windows**, and the worst single day of the year is 29 December with 36 accidents against a daily mean of 9.9.
+The table builds a daily series across the calendar year and aggregates the windows with a `window_rate()` helper. Accidents run at roughly twice the daily baseline during Songkran and three times during the final days of December. **Eight of the ten worst days of 2022 fall inside these two windows**, and the worst single day of the year is 29 December with 36 accidents against a daily mean of 9.9.
 
 ### Pandemic recovery as a confounder
 
@@ -627,7 +627,7 @@ knitr::include_graphics("lixel-schematic.png")
 
 ## Snapping events to the network
 
-Every estimator used here requires the events to lie on the network, and each snaps them to the nearest point on a line before measuring. The course chapter describes the points handed to `kfunctions()` as ones that "will be snapped on the network", and `nkde()` behaves the same way.
+Every estimator used here requires the events to lie on the network, and each snaps them to the nearest point on a line (`st_nearest_feature()`, then `st_distance()`) before measuring. The course chapter describes the points handed to `kfunctions()` as ones that "will be snapped on the network", and `nkde()` behaves the same way.
 
 The offsets it removes are measured in @sec-network-constraint: a median of about 4 m, with 98% of accidents within 20 m of a major road. The events are therefore treated as positions on the lines.
 
@@ -755,7 +755,7 @@ ggplot() +
 **How it is chosen.** Cross-validation likelihood, the selector `spNetwork` provides (Gelb and Apparicio, 2023), scores each candidate bandwidth on how well it predicts every accident from the others, and returns the value that scores highest.
 :::
 
-Cross-validation likelihood was run from 200 m to 8,000 m.
+Cross-validation likelihood (`bw_cv_likelihood_calc()`) was run from 200 m to 8,000 m.
 
 ```{r}
 #| label: cv-bandwidth
@@ -879,7 +879,7 @@ The surface can therefore be converted to a count by multiplying by the bandwidt
 
 ## Corridors by peak intensity {#sec-corridors-peak}
 
-The lixels are grouped by road name, and each corridor is represented by the highest value the surface reaches anywhere along it. Aggregating to the named road is what makes the surface usable: an intervention is designed for a stretch of road, and no authority acts on a lixel. Peak density then locates the point along that road where accidents concentrate most. Al-Aamri et al. (2021) summarise their surface in a coarser unit in the same way, summing network density over zones and ranking those; the unit here is the named road and the summary is its peak. The corridors named below appear as the darkest stretches of the classified surface in @sec-density-map.
+The lixels are grouped by road name, and each corridor is represented by the highest value the surface reaches anywhere along it, taken with `slice_max()`. Aggregating to the named road is what makes the surface usable: an intervention is designed for a stretch of road, and no authority acts on a lixel. Peak density then locates the point along that road where accidents concentrate most. Al-Aamri et al. (2021) summarise their surface in a coarser unit in the same way, summing network density over zones and ranking those; the unit here is the named road and the summary is its peak. The corridors named below appear as the darkest stretches of the classified surface in @sec-density-map.
 
 ```{r}
 #| label: top-corridors
@@ -989,7 +989,7 @@ The second research question asks when intensity changes. Its within-day part is
 
 $$\lambda(u, t) = \frac{1}{bw_{net}\, bw_{time}}\sum_{i=1}^{n} w_i\, K_{net}(\mathrm{dist}(u, e_i))\, K_{time}(|t - t_i|)$$
 
-Two bandwidths are required, one along the network and one in time, and Gelb and Apparicio (2023) define the estimator in this form. The run below keeps the 400 m network bandwidth of the static surface and adds a two-hour time bandwidth, the window the lesson's own worked example uses, with sampling points at every lixel centre and every hour of the day.
+Two bandwidths are required, one along the network and one in time, and Gelb and Apparicio (2023) define the estimator in this form. The run below (`tnkde()`) keeps the 400 m network bandwidth of the static surface and adds a two-hour time bandwidth, the window the lesson's own worked example uses, with sampling points at every lixel centre and every hour of the day.
 
 ```{r}
 #| label: tnkde-call
@@ -1206,7 +1206,7 @@ accidents |>
   kable()
 ```
 
-The four bands split where the hourly profile turns: the morning rise ends at 11:00, the afternoon decline at 16:00, and the evening floor at 22:00. Read against that profile, they place the severity more precisely than a night and day split does. The 06:00 to 11:00 band holds 703 accidents, 19.5% of the total, and 77 fatalities, 43.5% of all deaths, a rate of 11.0 per 100. The 16:00 to 22:00 band holds the most accidents, 1,039 or 28.9%, and the fewest deaths relative to its size, 23 or 13.0%, a rate of 2.2 per 100. Severity declines from morning to evening and rises only slightly overnight.
+The four bands are cut with `case_when()` where the hourly profile turns: the morning rise ends at 11:00, the afternoon decline at 16:00, and the evening floor at 22:00. Read against that profile, they place the severity more precisely than a night and day split does. The 06:00 to 11:00 band holds 703 accidents, 19.5% of the total, and 77 fatalities, 43.5% of all deaths, a rate of 11.0 per 100. The 16:00 to 22:00 band holds the most accidents, 1,039 or 28.9%, and the fewest deaths relative to its size, 23 or 13.0%, a rate of 2.2 per 100. Severity declines from morning to evening and rises only slightly overnight.
 
 Motorcycle involvement points the same way without accounting for the pattern. Motorcycles are 13.4% of records in the 06:00 to 11:00 band and 12.6% overnight, yet the rates are 11.0 and 3.3 per 100. The same vehicle type at a similar share produces very different severity at the two times, so the recorded vehicle mix does not by itself explain the morning concentration.
 
@@ -1222,7 +1222,7 @@ This section keeps the course chapter's instruments, the network K and G functio
 
 ## Displacing tied coordinates {#sec-jitter}
 
-Exact coordinate ties inflate short-range K without limit. Baddeley et al. (2015) describe duplicated coordinates as common and as severely affecting procedures built for simple point processes, and give perturbation as the remedy. A five-metre random displacement is applied here, of the same order as the four-metre median distance between an accident and the network, so it preserves the network constraint while breaking the ties.
+Exact coordinate ties inflate short-range K without limit. Baddeley et al. (2015) describe duplicated coordinates as common and as severely affecting procedures built for simple point processes, and give perturbation as the remedy. A five-metre random displacement is applied here (`st_jitter()`), of the same order as the four-metre median distance between an accident and the network, so it preserves the network constraint while breaking the ties.
 
 ```{r}
 #| label: jitter-ties
@@ -1269,7 +1269,7 @@ The null tested here is the course chapter's own default, simulated accidents di
 ::: callout-note
 ## What the chi-square test does
 
-The uniform null holds that accidents fall in proportion to road length, so each road class should take a share of them equal to its share of the network. The test compares the accidents observed in each class against that share, and a large result means the spread across classes is further from proportional than chance allows.
+The uniform null holds that accidents fall in proportion to road length, so each road class should take a share of them equal to its share of the network. The test (`chisq.test()`) compares the accidents observed in each class against that share, and a large result means the spread across classes is further from proportional than chance allows.
 
 O'Sullivan and Unwin (2010, chapter 5) put the same test to quadrat counts for the same purpose, testing a pattern against complete spatial randomness, and note that it needs an adequate expected count in every class. The smallest expected count here is 37.
 :::
@@ -1471,7 +1471,7 @@ Quantile classification does not solve this either: with such a large spike at z
 ::: callout-note
 ## Classification method
 
-**Jenks natural breaks** is an iterative method that places the class boundaries where the values group apart, so that each class holds similar segments and neighbouring classes differ as much as the values allow. It minimises the variance within each class and maximises the variance between classes.
+**Jenks natural breaks**, which `classInt::classIntervals()` computes, is an iterative method that places the class boundaries where the values group apart, so that each class holds similar segments and neighbouring classes differ as much as the values allow. It minimises the variance within each class and maximises the variance between classes.
 :::
 
 ```{r}
