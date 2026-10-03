@@ -36,6 +36,8 @@ website:
         menu:
           - text: "In-class Ex 4: Spatial Weights and Applications"
             href: In-class_Ex/In-class_Ex04/In-class_Ex04.qmd
+          - text: "In-class Ex 6: Emerging Hot Spot Analysis"
+            href: In-class_Ex/In-class_Ex06/In-class_Ex06.qmd
       - text: "Take-home Exercises"
         menu:
           - text: "Take-home Ex 1: Technical Report"
