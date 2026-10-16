@@ -32,6 +32,8 @@ website:
             href: Hands-on_Ex/Hands-on_Ex05/Hands-on_Ex05.qmd
           - text: "Hands-on Ex 6: Geographical Segmentation with Spatially Constrained Clustering"
             href: Hands-on_Ex/Hands-on_Ex06/Hands-on_Ex06.qmd
+          - text: "Hands-on Ex 7: Modelling Geographical Accessibility"
+            href: Hands-on_Ex/Hands-on_Ex07/Hands-on_Ex07.qmd
       - text: "In-class Exercises"
         menu:
           - text: "In-class Ex 4: Spatial Weights and Applications"

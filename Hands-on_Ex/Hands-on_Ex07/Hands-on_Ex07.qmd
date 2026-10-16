@@ -1,0 +1,3595 @@
+---
+title: "Hands-on Exercise 7"
+subtitle: "Modelling Geographical Accessibility"
+author: "An Loc"
+date: "13 October 2026"
+date-modified: "last-modified"
+date-format: "D MMM YYYY"
+format:
+  html:
+    toc: true
+    toc-depth: 4
+    toc-expand: true
+    code-fold: false
+    code-copy: true
+    fig-width: 9
+    fig-height: 7
+execute:
+  echo: true
+  eval: true
+  warning: false
+  message: false
+  freeze: true
+---
+
+# Overview
+
+In Exercise 6, townships were grouped into regions by the similarity of their ICT rates. In this
+exercise, accessibility is measured for every part of Singapore: how easily the residents of each
+part can reach one of the 120 eldercare centres in the government's list of eldercare services.
+
+On slide 3, accessibility is "the measure of the capacity of a location to be reached from, or to be
+reached by, different locations", the definition of Rodrigue et al. (2013). Every measure in this
+exercise combines demand, supply and the cost of travel:
+
+- the demand at each place, the number of people who may use the service;
+- the supply at each service location, the amount of service available;
+- the cost of travel between each place and each service location, here the network distance along
+  the roads.
+
+**Part 1** is a reproduction of r4gdsa chapter 17, which computes three measures with the `ac()`
+function of the `SpatialAcc` package: Hansen's potential model, the kernel density two-step floating
+catchment area method (KD2SFCA) and the spatial accessibility measure (SAM). In **Part 2**, the
+output of `ac()` is compared with the formulas on the Lesson 7 slides and in the readings, and the
+distance matrix is checked. The 2SFCA and E2SFCA methods of slides 24 to 28 are added, and the
+constant demand of the chapter is replaced with the number of residents aged 65 and over.
+
+::: {.callout-note appearance="simple"}
+
+## Sources
+
+The hands-on exercise for Lesson 7 is this chapter:
+
+- [Chapter 17: Modelling Geographical Accessibility](https://r4gdsa.netlify.app/chap17.html)
+
+The Lesson 7 outline lists four readings for before the lesson.
+
+| Reading | What it contributes | Used in |
+|--------------------------|--------------------------------------------------------|----------------------|
+| **Long (2017)**, "Modelling Accessibility", GIS&T Body of Knowledge | Network space and network distance; four classes of accessibility measure; the remark that gravity-based measures have no clear definition of a high or low value, so "all analysis must be relative"; aggregation of accessibility to regions | 3.1, 4.1, 4.6 |
+| **Hansen (1959)**, *Accessibility and Residential Growth* | Accessibility as the sum of the opportunities at each zone divided by the separation raised to an exponent, and exponents of 2.2 to 3.0 by trip purpose | 3.1, 3.3, 3.4, 4.2, 4.3 |
+| **Luo and Wang (2003)**, "Measures of spatial accessibility to health care in a GIS environment" | The two steps of 2SFCA; 2SFCA as a special case of the gravity model with competition; the population-weighted mean of the accessibility scores equals the ratio of total supply to total demand; a larger catchment gives smoother scores | 3.1, 3.2, 3.4, 4.2 to 4.6 |
+| **Luo and Qi (2009)**, "An enhanced two-step floating catchment area (E2SFCA) method" | Three travel zones within the catchment, with weights from a Gaussian function | 4.2 to 4.6 |
+
+The outline links Hansen (1959) to a PDF at MIT. The PDF is Hansen's master's thesis of 1959, which
+contains the accessibility model and the exponents used on this page. The article named on the
+outline, "How Accessibility Shapes Land Use", is a summary of the thesis, published in the *Journal
+of the American Institute of Planners* in 1959.
+
+Of the six references the outline also lists, the following are used on this page:
+
+| Reference | What it contributes | Used in |
+|----------------------------|----------------------------------------------------------|------------------|
+| **Polzin, Borges and Coelho (2014)**, "An extended kernel density two-step floating catchment area method" | KD2SFCA as defined by Dai and Wang (2011), with the Epanechnikov kernel | 3.2, 4.2 to 4.5 |
+| **Cheng et al. (2016)**, "Spatial difference analysis for accessibility to high level hospitals based on travel time in Shenzhen, China" | KD2SFCA with a Gaussian kernel whose width is set so that the weight at the catchment edge is 0.05 | 3.2, 4.2 to 4.5 |
+| **Rodrigue, Comtois and Slack (2013)**, *The Geography of Transport Systems*, "Transportation and Accessibility" | The definition of accessibility quoted on slide 3 | 1 |
+
+Rich (1980) and Orpana and Lampinen (2003) cover potential models and spatial choice models in
+general, as background reading for this page.
+
+Slide 29 cites Kalogirou and Foley (2006) for SAM. The paper is cited on slide 29 only, and is used
+in sections 3.1, 3.3, 3.4, 4.1 to 4.3 and 4.5. Its first author wrote the `SpatialAcc` package.
+
+The outline's "All About R" section links three packages. `SpatialAcc` is used throughout. The
+`potential` package (Stewart's potential model) and the `accessibility` package compute families of
+measure that `SpatialAcc` also computes. This page uses only `SpatialAcc`.
+
+The Lesson 7 slide deck is dated 12 October 2026, with 29 numbered slides. Slide 2 lists the Stewart
+and Hansen potential models, 2SFCA, KD2SFCA and SAM. Slides 19 and 20 give the formula of Stewart's
+potential model. Slides 24 to 27 give the formulas of 2SFCA and E2SFCA, and slide 29 gives the
+formula of SAM. The deck has no formula for the Hansen model or for KD2SFCA.
+
+:::
+
+## Differences from the chapter
+
+| | The chapter | This page | Why | Where |
+|-----------------|-----------------|--------------------|--------------------------------------|--------|
+| **Distance matrix** | used as read | checked against straight-line distances | 159 hexagons have the same network distance to all 120 centres. One of them is 2SFCA's highest-scoring hexagon in Part 2 | 4.1 |
+| **Order of rows and columns** | assumed | checked | `ac()` pairs row $i$ of the distance matrix with hexagon $i$ and column $j$ with centre $j$, by position only | 2.4.2 |
+| **Long to wide** | `spread()` | `pivot_wider()` | According to the chapter's own note, `pivot_wider()` replaces `spread()`; both functions give the same matrix | 2.4.2 |
+| **Hansen decay** | `power = 2` in the step-by-step code, `power = 0.5` in the single code chunk | `power = 2` in Part 1; `power = 2`, `power = 0.5` and a power function compared in Part 2 | `ac()` weights a centre by $e^{-\beta d}$, with $\beta$ = `power`. With `power = 2` and distances in kilometres, the weight halves every 347 m | 4.3 |
+| **Capacity in the Hansen model** | a constant 100 | a constant 100 | With unequal capacities, `ac(family = "Hansen")` multiplies the weights by the capacities of the wrong centres | 4.3 |
+| **KD2SFCA kernel** | `ac()` default | compared with the kernels of Dai and Wang (2011) and Cheng et al. (2016) | The kernel of `ac()` is $e^{-d^2}$. At 2 km from a centre, the weight is 0.018 | 4.4 |
+| **2SFCA and E2SFCA** | not covered | computed | Slides 24 to 28 | 4.4 |
+| **SAM** | `d0 = 5` | `d0 = 5`, noted as unused | The SAM formula has no catchment, and `ac()` uses `d0` only for 2SFCA and KD2SFCA. With a constant demand of 100, SAM is $\sum_j n_j / d_{ij}^2$ divided by 100 | 3.3.1, 4.3 |
+| **Demand** | 100 in every hexagon | residents aged 65 and over from the 2020 census, added in Part 2 | 1,334 of the 3,125 hexagons have no resident aged 65 and over | 4.5 |
+| **Region of a hexagon** | `st_join()` with `st_intersects` | one region for each hexagon, the one it overlaps most | The join returns one row per subzone a hexagon touches: 5,406 rows for 3,125 hexagons | 3.1.3, 4.6 |
+| **Mean marker on the boxplots** | `fun.y = "mean"` | `fun = "mean"` | `fun.y` has been deprecated since `ggplot2` 3.3.0 | 3.1.3 |
+| **Theme of the charts** | the `ggplot2` default | `theme_minimal()`, with the regions named in full | The default grey panel and the axis label `REGION_N` are harder to read than the maps on this page | 3.1.3, 3.2.3, 3.3.3 |
+
+::: {.callout-note collapse="false"}
+## Mapping of chapter 17 to this page
+
+| Chapter | This page |
+|---|---|
+| 17.1 Introduction | 1 Overview |
+| 17.2 The data | 2.2 The data |
+| 17.3 Getting Started | 2.1 Packages |
+| 17.4.1 Importing geospatial data | 2.3.1 Reading the three layers |
+| 17.4.2 Updating CRS information | 2.3.2 Coordinate reference system |
+| 17.4.3 Cleaning and updating attribute fields | 2.3.3 Demand and capacity |
+| 17.5.1 Importing Distance Matrix | 2.4.1 Reading the distance matrix |
+| 17.5.2 Tidying distance matrix | 2.4.2 From long to wide |
+| 17.6.1 Computing Hansen's accessibility | 3.1.1 Hansen scores from `ac()` |
+| 17.6.2 Visualising Hansen's accessibility | 3.1.2 Decile map of the Hansen scores |
+| 17.6.3 Statistical graphic visualisation | 3.1.3 Hansen scores by region |
+| 17.7.1 to 17.7.3 KD2SFCA | 3.2.1 to 3.2.3 |
+| 17.8.1 to 17.8.3 SAM | 3.3.1 to 3.3.3 |
+:::
+
+# Getting started
+
+## Packages
+
+The chapter's code loads `ggstatsplot` and `reshape2`, but the two packages are not used, so they
+are left out on this page. `patchwork` is added to place maps side by side, and `knitr` to format
+tables.
+
+```{r}
+pacman::p_load(sf, SpatialAcc, tmap, patchwork,
+               knitr, tidyverse)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+pacman::p_load(...)                                       # pacman
+```
+
+- `p_load()` loads each package, and installs any that are missing.
+
+| Package | Used for |
+|------------------|----------------------------------------------------------------------------------|
+| `sf` | reading the shapefiles, coordinate reference systems, spatial joins |
+| `SpatialAcc` | `ac()`, the accessibility measures |
+| `tmap` | maps |
+| `patchwork` | placing several charts or maps in one figure |
+| `knitr` | tables |
+| `tidyverse` | reading and reshaping the distance matrix (`readr`, `dplyr`, `tidyr`), and `ggplot2` charts |
+:::
+
+## The data
+
+Section 17.2 of the chapter lists four data sets, which are distributed with the exercise on eLearn.
+
+| Data set | Format | Features | Contents |
+|-------------------------|--------------|------------------|-------------------------------------------|
+| `MP14_SUBZONE_NO_SEA_PL` | ESRI shapefile | 323 polygons | URA Master Plan 2014 subzone boundaries, from data.gov.sg |
+| `hexagons` | ESRI shapefile | 3,125 polygons | hexagons covering the main island, Jurong Island and Sentosa, made with `st_make_grid()` |
+| `ELDERCARE` | ESRI shapefile | 120 points | eldercare services, from data.gov.sg |
+| `OD_Matrix` | CSV | 375,000 rows, 6 fields | network distance in metres from every hexagon to every centre |
+
+According to the chapter, `hexagons`, `ELDERCARE` and `OD_Matrix` were prepared by Prof. Kam Tin
+Seong for teaching and research, and may be used for this hands-on exercise. Use of the three data
+sets for any other purpose requires the approval of Prof. Kam.
+
+## Geospatial data
+
+### Reading the three layers
+
+The three layers have separate roles in the computation of Part 1:
+
+| Object | Layer | One feature is | Used for |
+|----------|----------------------|------------------------|--------------------------------------------|
+| `hexagons` | `hexagons` | a hexagon of the main island, Jurong Island or Sentosa | demand in `ac()` (section 2.3.3) and rows of the distance matrix (section 2.4); unit of the Hansen, KD2SFCA and SAM scores (sections 3.1 to 3.3) |
+| `eldercare` | `ELDERCARE` | an eldercare service, with its postal code and address | supply in `ac()` (section 2.3.3) and columns of the distance matrix (section 2.4); red points on the maps of sections 3.1.2, 3.2.2 and 3.3.2 |
+| `mpsz` | `MP14_SUBZONE_NO_SEA_PL` | a subzone of the URA Master Plan 2014, with its planning area and region | region of each hexagon, for the boxplots of sections 3.1.3, 3.2.3 and 3.3.3 |
+
+```{r}
+#| results: hide
+mpsz <- st_read(dsn = "data/geospatial",
+                layer = "MP14_SUBZONE_NO_SEA_PL")
+hexagons <- st_read(dsn = "data/geospatial",
+                    layer = "hexagons")
+eldercare <- st_read(dsn = "data/geospatial",
+                     layer = "ELDERCARE")
+```
+
+```{r}
+tibble(layer = c("mpsz", "hexagons", "eldercare"),
+       features = c(nrow(mpsz), nrow(hexagons), nrow(eldercare)),
+       geometry = c(as.character(st_geometry_type(mpsz, by_geometry = FALSE)),
+                    as.character(st_geometry_type(hexagons, by_geometry = FALSE)),
+                    as.character(st_geometry_type(eldercare, by_geometry = FALSE))),
+       epsg = c(st_crs(mpsz)$epsg, st_crs(hexagons)$epsg, st_crs(eldercare)$epsg)) |>
+  kable()
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+st_read(dsn, layer)                                       # sf
+st_geometry_type(x, by_geometry = FALSE)                  # sf
+st_crs(x)$epsg                                            # sf
+tibble(...)                                               # tibble
+kable(x, digits)                                          # knitr
+```
+
+- `st_read()` reads the shapefile named by `layer` from the folder `dsn` into a simple feature data
+  frame. `results: hide` suppresses the report that `st_read()` prints for each file.
+- `st_geometry_type(by_geometry = FALSE)` returns one geometry type for the whole layer.
+- `st_crs()$epsg` returns the EPSG code of the coordinate reference system, or `NA` when the file
+  does not contain one.
+- `tibble()` builds a data frame from vectors of equal length, one column for each argument. Here
+  the table has one row for each layer.
+- `kable()` prints a data frame as a formatted table. The other tables on this page are also printed
+  with `kable()`. Where `digits` is given, it rounds the numbers.
+:::
+
+The subzones have no EPSG code: their projection file describes SVY21 by its parameters only. The
+hexagons and the eldercare centres are already in SVY21 with EPSG code 3414.
+
+The map below shows the hexagons, the subzone boundaries and the eldercare centres together.
+
+::: {.panel-tabset}
+#### Map
+
+```{r}
+#| label: layers-map
+#| echo: false
+#| fig-height: 5
+tm_shape(hexagons) +
+  tm_polygons(fill = "grey85", col = "white", lwd = 0.3) +
+tm_shape(mpsz) +
+  tm_borders(col = "steelblue", lwd = 0.7) +
+tm_shape(eldercare) +
+  tm_dots(fill = "red", size = 0.3) +
+  tm_add_legend(type = "polygons", labels = "hexagons",
+                fill = "grey85", col = "white") +
+  tm_add_legend(type = "lines", labels = "subzone boundaries",
+                col = "steelblue") +
+  tm_add_legend(type = "symbols", labels = "eldercare centres",
+                fill = "red") +
+  tm_title("Hexagons, subzones and eldercare centres") +
+  tm_layout(frame = FALSE, legend.outside = TRUE,
+            legend.outside.position = "bottom")
+```
+
+#### Code
+
+```{r}
+#| ref.label: layers-map
+#| eval: false
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+tm_shape(shp) + tm_polygons(fill, col, lwd)               # tmap
+tm_borders(col, lwd)                                      # tmap
+tm_dots(fill, size)                                       # tmap
+tm_add_legend(type, labels, fill, col)                    # tmap
+```
+
+- Each `tm_shape()` starts a layer, and the layers are drawn in order: the hexagons in grey with
+  white borders, the subzone boundaries in blue, and the centres as red points.
+- The extent and the coordinate reference system of the map are those of the first layer,
+  `hexagons`. The subzones are in the same SVY21 projection as the hexagons, so the two layers line
+  up although the EPSG code of the subzones is added only in section 2.3.2.
+- Each layer is drawn in one colour, so the legend is built by hand. `tm_add_legend()` adds one
+  entry for each layer.
+:::
+:::
+
+Five subzones have no hexagon: the North-Eastern Islands (Pulau Ubin and Pulau Tekong), Pulau
+Seletar, Sudong, Semakau and the Southern Group. Of the 120 centres, 61 are in the Central Region,
+which has 136 km² of the 781 km² of land in the subzone layer. The West Region, with 257 km², has 20
+centres.
+
+### Coordinate reference system
+
+```{r}
+mpsz <- st_transform(mpsz, 3414)
+eldercare <- st_transform(eldercare, 3414)
+hexagons <- st_transform(hexagons, 3414)
+
+st_crs(mpsz)$epsg
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+st_transform(x, crs)                                      # sf
+```
+
+- `st_transform()` converts the coordinates of `x` to the coordinate reference system `crs`, here
+  EPSG:3414, SVY21 / Singapore TM. For `hexagons` and `eldercare`, which are already in EPSG:3414,
+  the call changes nothing. For `mpsz`, the call keeps the SVY21 projection and adds the EPSG code.
+:::
+
+The chapter text names the subzone layer `MP14_SUBZONE_WEB_PL` and the transformed object
+`mpsz_svy21`. The chapter's code reads the layer `MP14_SUBZONE_NO_SEA_PL` into the object `mpsz`.
+
+::: {.callout-tip collapse="false"}
+## Hexagons as the spatial unit
+
+On slides 9 to 11, hexagons are the spatial unit. Administrative units such as subzones have shapes
+and sizes set by planning decisions. Every hexagon has the same area. Of the regular polygons that
+tile a plane, the hexagon is the closest to a circle.
+
+```{r}
+#| echo: false
+hex_area <- as.numeric(st_area(hexagons[1, ]))
+hex_side <- sqrt(2 * hex_area / (3 * sqrt(3)))
+hex_apothem <- hex_side * sqrt(3) / 2
+```
+
+Each hexagon covers `r format(round(hex_area), big.mark = ",")` m². Its sides
+are `r round(hex_side, 1)` m long, and the distance from its centre to the middle of each side
+is `r round(hex_apothem)` m. The "250m radius" of section 17.2 is that distance. The centres of two
+neighbouring hexagons are 500 m apart.
+
+```{r}
+#| echo: false
+#| fig-height: 4
+amk <- mpsz |> filter(PLN_AREA_N == "ANG MO KIO")
+amk_hex <- hexagons[st_intersects(hexagons, st_union(amk), sparse = FALSE)[, 1], ]
+tm_shape(amk_hex) +
+  tm_polygons(fill = "grey95", col = "grey50") +
+tm_shape(amk) +
+  tm_borders(col = "steelblue", lwd = 1.5) +
+tm_shape(st_filter(eldercare, st_union(amk))) +
+  tm_dots(fill = "red", size = 0.4) +
+  tm_title("Ang Mo Kio: subzones (blue) and hexagons (grey), eldercare centres in red") +
+  tm_layout(frame = FALSE)
+```
+
+The hexagons are the units of demand in every measure on this page. The demand of a hexagon is
+placed at its centre point. The distance to each eldercare centre is measured from that point.
+:::
+
+### Demand and capacity
+
+The layers read in section 2.3.1 have no field for the demand of a hexagon or the capacity of a
+centre. The code below adds a `demand` column to `hexagons` and a `capacity` column to `eldercare`.
+It also keeps only the identifier `fid` of `hexagons` and `eldercare`, and the postal code of each
+centre.
+
+```{r}
+eldercare <- eldercare |>
+  select(fid, ADDRESSPOS) |>
+  mutate(capacity = 100)
+
+hexagons <- hexagons |>
+  select(fid) |>
+  mutate(demand = 100)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+select(.data, ...)                                        # dplyr
+mutate(.data, ...)                                        # dplyr
+```
+
+- `select()` keeps the identifier `fid` of each layer, and the postal code of each centre. The
+  geometry column is kept by `sf` without being named.
+- `mutate()` adds a constant column to each layer: a capacity of 100 for each centre, and a demand
+  of 100 for each hexagon.
+
+`eldercare` has 20 columns when it is read. The columns that `select()` keeps are shaded:
+
+<div style="overflow-x: auto;">
+<table class="table table-sm">
+<tr><th style="background: rgba(255, 193, 7, 0.30)">fid</th><th>OBJECTID</th><th>…</th><th style="background: rgba(255, 193, 7, 0.30)">ADDRESSPOS</th><th>ADDRESSSTR</th><th>…</th><th>NAME</th><th>…</th><th style="background: rgba(255, 193, 7, 0.30)">geometry</th></tr>
+<tr><td style="background: rgba(255, 193, 7, 0.30)">1</td><td>1</td><td>…</td><td style="background: rgba(255, 193, 7, 0.30)">601318</td><td>318A Jurong East Avenue 1 #02-308</td><td>…</td><td>Yuhua Senior Activity Centre</td><td>…</td><td style="background: rgba(255, 193, 7, 0.30)">POINT (16614 36639)</td></tr>
+<tr><td style="background: rgba(255, 193, 7, 0.30)">2</td><td>2</td><td>…</td><td style="background: rgba(255, 193, 7, 0.30)">462509</td><td>Blk 509B Bedok North Street 3 #02-157</td><td>…</td><td>THK SAC @ Kaki Bukit</td><td>…</td><td style="background: rgba(255, 193, 7, 0.30)">POINT (38804 35099)</td></tr>
+<tr><td style="background: rgba(255, 193, 7, 0.30)">…</td><td>…</td><td>…</td><td style="background: rgba(255, 193, 7, 0.30)">…</td><td>…</td><td>…</td><td>…</td><td>…</td><td style="background: rgba(255, 193, 7, 0.30)">…</td></tr>
+</table>
+</div>
+
+`eldercare` after the code, with the new column shaded:
+
+<div style="overflow-x: auto;">
+<table class="table table-sm">
+<tr><th>fid</th><th>ADDRESSPOS</th><th>geometry</th><th style="background: rgba(255, 193, 7, 0.30)">capacity</th></tr>
+<tr><td>1</td><td>601318</td><td>POINT (16614 36639)</td><td style="background: rgba(255, 193, 7, 0.30)">100</td></tr>
+<tr><td>2</td><td>462509</td><td>POINT (38804 35099)</td><td style="background: rgba(255, 193, 7, 0.30)">100</td></tr>
+<tr><td>…</td><td>…</td><td>…</td><td style="background: rgba(255, 193, 7, 0.30)">…</td></tr>
+</table>
+</div>
+
+`hexagons` has 7 columns when it is read. The columns that `select()` keeps are shaded:
+
+<div style="overflow-x: auto;">
+<table class="table table-sm">
+<tr><th style="background: rgba(255, 193, 7, 0.30)">fid</th><th>id</th><th>left</th><th>top</th><th>right</th><th>bottom</th><th style="background: rgba(255, 193, 7, 0.30)">geometry</th></tr>
+<tr><td style="background: rgba(255, 193, 7, 0.30)">1</td><td>46</td><td>2667.5</td><td>27756.3</td><td>3244.9</td><td>27256.3</td><td style="background: rgba(255, 193, 7, 0.30)">POLYGON ((2667.5 27506.3, …))</td></tr>
+<tr><td style="background: rgba(255, 193, 7, 0.30)">2</td><td>51</td><td>2667.5</td><td>25256.3</td><td>3244.9</td><td>24756.3</td><td style="background: rgba(255, 193, 7, 0.30)">POLYGON ((2667.5 25006.3, …))</td></tr>
+<tr><td style="background: rgba(255, 193, 7, 0.30)">…</td><td>…</td><td>…</td><td>…</td><td>…</td><td>…</td><td style="background: rgba(255, 193, 7, 0.30)">…</td></tr>
+</table>
+</div>
+
+`hexagons` after the code, with the new column shaded:
+
+<div style="overflow-x: auto;">
+<table class="table table-sm">
+<tr><th>fid</th><th>geometry</th><th style="background: rgba(255, 193, 7, 0.30)">demand</th></tr>
+<tr><td>1</td><td>POLYGON ((2667.5 27506.3, …))</td><td style="background: rgba(255, 193, 7, 0.30)">100</td></tr>
+<tr><td>2</td><td>POLYGON ((2667.5 25006.3, …))</td><td style="background: rgba(255, 193, 7, 0.30)">100</td></tr>
+<tr><td>…</td><td>…</td><td style="background: rgba(255, 193, 7, 0.30)">…</td></tr>
+</table>
+</div>
+:::
+
+In the chapter, the same value is used for every hexagon and every centre "for the purpose of this
+hands-on exercise", with a note that the actual demand and capacity should be used in practice. The
+`ELDERCARE` layer has no field on the size of a centre, so the capacity stays at 100 on this page.
+With the same demand in every hexagon and the same capacity at every centre, the Hansen, KD2SFCA and
+SAM scores depend only on the distances in the distance matrix.
+
+## Distance matrix
+
+### Reading the distance matrix
+
+```{r}
+ODMatrix <- read_csv("data/aspatial/OD_Matrix.csv",
+                     skip = 0)
+glimpse(ODMatrix)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+read_csv(file, skip)                                      # readr
+glimpse(x)                                                # dplyr
+```
+
+- `read_csv()` reads the file into a tibble. With the default `skip = 0`, reading starts at the
+  first line.
+- `glimpse()` prints the number of rows and columns, and the type and first values of each column.
+:::
+
+The file has one row per pair of hexagon and eldercare centre: 3,125 hexagons × 120 centres
+= `r format(nrow(ODMatrix), big.mark = ",")` rows.
+
+::: {.callout-tip collapse="false"}
+## Fields of the distance matrix
+
+Each row gives the cost of travel, in metres, from the centre of one hexagon to one eldercare
+centre, divided into these parts:
+
+| Field | Distance |
+|--------------------|--------------------------------------------------------------------------------|
+| `entry_cost` | from the centre of the hexagon to the nearest road |
+| `network_cost` | along the road network |
+| `exit_cost` | from the road to the eldercare centre |
+| `total_cost` | the sum of `entry_cost`, `network_cost` and `exit_cost` |
+
+The invented street map below draws the `entry_cost`, `network_cost` and `exit_cost` of one pair of
+hexagon and centre as three coloured lines.
+
+```{r}
+#| echo: false
+#| fig-height: 4.6
+fd_unit <- 250                                              # metres per grid unit
+fd_streets <- bind_rows(tibble(x = 0.3, xend = 10.2, y = c(1, 3.5, 6), yend = y),
+                        tibble(x = c(1, 4, 7, 9.5), xend = x, y = 0.3, yend = 6.7))
+fd_parts <- tribble(
+  ~field,         ~x,  ~y,  ~xend, ~yend,
+  "entry_cost",   2.5, 4.6, 2.5,   3.5,
+  "network_cost", 2.5, 3.5, 7,     3.5,
+  "network_cost", 7,   3.5, 7,     1,
+  "network_cost", 7,   1,   8.3,   1,
+  "exit_cost",    8.3, 1,   8.3,   1.6) |>
+  mutate(len = sqrt((xend - x)^2 + (yend - y)^2))
+fd_m <- tapply(fd_parts$len, fd_parts$field, sum) * fd_unit
+fd_col <- c(entry_cost = "#e6550d", network_cost = "grey10", exit_cost = "#756bb1")
+fd_lab <- tribble(
+  ~field,         ~x,   ~y,   ~hjust,
+  "entry_cost",   2.3,  4.0,  1,
+  "network_cost", 5.5,  4.0,  0.5,
+  "exit_cost",    8.75, 1.35, 0) |>
+  mutate(label = sprintf("%s\n%s m", field, format(fd_m[field], big.mark = ",")))
+ggplot() +
+  annotate("rect", xmin = 0, xmax = 10.5, ymin = 0, ymax = 7.6, fill = "white", colour = "grey65") +
+  annotate("text", x = 0.2, y = 7.4, hjust = 0, vjust = 1, fontface = "bold", size = 4.3,
+           label = sprintf("total_cost = %s + %s + %s = %s m",
+                           format(fd_m["entry_cost"], big.mark = ","),
+                           format(fd_m["network_cost"], big.mark = ","),
+                           format(fd_m["exit_cost"], big.mark = ","),
+                           format(sum(fd_m), big.mark = ","))) +
+  geom_segment(data = fd_streets, aes(x, y, xend = xend, yend = yend), colour = "grey85",
+               linewidth = 3.5) +
+  annotate("segment", x = 2.5, y = 4.6, xend = 8.3, yend = 1.6, colour = "grey55",
+           linetype = "dashed") +
+  annotate("text", x = 5.2, y = 2.95, angle = -27, size = 3.3, colour = "grey45",
+           label = "straight line: not in the file") +
+  geom_segment(data = fd_parts, aes(x, y, xend = xend, yend = yend, colour = field),
+               linewidth = 2, lineend = "round") +
+  geom_polygon(data = tibble(a = seq(0, 300, by = 60) * pi / 180,
+                             x = 2.5 + 0.45 * cos(a), y = 4.6 + 0.45 * sin(a)),
+               aes(x, y), fill = "#a1d99b", colour = "grey30", alpha = 0.8) +
+  annotate("point", x = 2.5, y = 4.6, size = 2.5) +
+  annotate("text", x = 2.5, y = 5.3, label = "centre of the hexagon", size = 3.6) +
+  annotate("point", x = 8.3, y = 1.6, shape = 21, size = 8, fill = "#3182bd", colour = "grey30") +
+  annotate("text", x = 8.3, y = 2.35, label = "eldercare centre", size = 3.6) +
+  geom_label(data = fd_lab, aes(x, y, label = label, colour = field, hjust = hjust),
+             size = 3.6, lineheight = 0.9, fontface = "bold", fill = "white", linewidth = 0) +
+  annotate("text", x = 10.2, y = 6.35, hjust = 1, size = 3.3, colour = "grey45",
+           label = "grey bands: roads") +
+  scale_colour_manual(values = fd_col, guide = "none") +
+  coord_equal(xlim = c(0, 10.5), ylim = c(0, 7.6), expand = FALSE) +
+  theme_void()
+```
+
+The table shows the first three rows of the file, which give the distances from hexagon 1 to the
+first three centres.
+
+```{r}
+#| echo: false
+ODMatrix |>
+  filter(origin_id == 1, destination_id %in% 1:3) |>
+  kable(digits = 1)
+```
+
+Kalogirou and Foley (2006), the source of SAM, computed their distances in the same three parts:
+from the centroid of each district to the nearest node of the road network, along the network, and
+from the network to the hospital. Long (2017, section 2.2) gives the reason for distances along the
+network: "most human movement occurs along a spatial network consisting of roads, railways, and
+paths". Slide 6 shows the straight-line ("Cartesian") distance and the network distance of the same
+trip.
+:::
+
+### From long to wide
+
+`ODMatrix` has one row for each pair of hexagon and eldercare centre. `ac()` takes a matrix with one
+row for each hexagon and one column for each centre. The chapter's code uses `spread()`, with a note
+that `pivot_wider()` has replaced it since `tidyr` 1.0.
+
+```{r}
+distmat <- ODMatrix |>
+  select(origin_id, destination_id, total_cost) |>
+  pivot_wider(names_from = destination_id,
+              values_from = total_cost)
+
+c(rows_match = identical(distmat$origin_id, hexagons$fid),
+  cols_match = identical(as.numeric(names(distmat)[-1]),
+                         as.numeric(eldercare$fid)))
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+pivot_wider(data, names_from, values_from)                # tidyr
+identical(x, y)                                           # base R
+```
+
+- `select()` keeps the three columns needed: the hexagon, the centre and the total distance.
+- `pivot_wider()` makes one column for each value of `destination_id`, named by that value, and
+  fills it with the `total_cost` of each hexagon to that centre. The result has one row for each
+  `origin_id`.
+- `identical()` checks that the rows are in the order of `hexagons$fid`, and that the column names
+  are in the order of `eldercare$fid`.
+
+In the invented example below, two hexagons and three centres make six pairs of hexagon and centre,
+one row each. Each centre has its own colour. `pivot_wider()` places each value in the column of its
+centre and the row of its hexagon.
+
+```{r}
+#| echo: false
+#| fig-height: 3.6
+pw_col <- c(`1` = "#fdd0a2", `2` = "#c6dbef", `3` = "#dadaeb")
+pw_long <- tibble(origin_id = rep(1:2, each = 3), destination_id = rep(1:3, 2),
+                  total_cost = c(2.1, 4.5, 1.8, 2.3, 4.8, 2.0))
+pw_lx <- c(1, 2.65, 4.3)                                  # columns of the long table
+pw_wx <- c(7.9, 9.15, 10.4, 11.65)                        # columns of the wide table
+pw_cells <- bind_rows(
+  tibble(x = rep(pw_lx, each = 6), y = rep(6:1, 3), w = 1.6, dest = rep(pw_long$destination_id, 3),
+         label = c(pw_long$origin_id, pw_long$destination_id, format(pw_long$total_cost))),
+  tibble(x = rep(pw_wx, each = 2), y = rep(c(6, 5), 4), w = 1.2, dest = c(NA, NA, 1, 1, 2, 2, 3, 3),
+         label = c("1", "2", format(pw_long$total_cost[c(1, 4, 2, 5, 3, 6)]))))
+pw_head <- tibble(x = c(pw_lx, pw_wx), y = 7, w = c(1.6, 1.6, 1.6, 1.2, 1.2, 1.2, 1.2),
+                  dest = c(NA, NA, NA, NA, 1, 2, 3),
+                  label = c("origin_id", "destination_id", "total_cost", "origin_id", "1", "2", "3"))
+ggplot() +
+  geom_tile(data = bind_rows(pw_cells, pw_head), aes(x, y, width = w, fill = factor(dest)),
+            colour = "white", linewidth = 1, height = 0.95) +
+  geom_text(data = pw_cells, aes(x, y, label = label), size = 4) +
+  geom_text(data = pw_head, aes(x, y, label = label), size = 3.6, fontface = "bold") +
+  annotate("segment", x = 5.4, xend = 7.0, y = 5.5, yend = 5.5, linewidth = 1.2,
+           arrow = arrow(length = unit(0.3, "cm"))) +
+  annotate("text", x = 6.2, y = 6.1, label = "pivot_wider()", size = 3.7, fontface = "bold") +
+  annotate("text", x = 2.65, y = 7.85, label = "Before: one row per pair", size = 4,
+           fontface = "bold") +
+  annotate("text", x = 9.8, y = 7.85, label = "After: one row per hexagon,\none column per centre",
+           size = 4, fontface = "bold", lineheight = 0.9) +
+  scale_fill_manual(values = pw_col, na.value = "grey92", guide = "none") +
+  coord_equal(ratio = 0.7, xlim = c(0.1, 12.4), ylim = c(0.4, 8.4)) +
+  theme_void()
+```
+
+`ODMatrix` before the code has one row for each pair of hexagon and centre, 375,000 rows. The
+columns that `select()` keeps are shaded. The distance from hexagon 1 to centre 2 is in bold:
+
+<div style="overflow-x: auto;">
+<table class="table table-sm">
+<tr><th style="background: rgba(255, 193, 7, 0.30)">origin_id</th><th style="background: rgba(255, 193, 7, 0.30)">destination_id</th><th>entry_cost</th><th>network_cost</th><th>exit_cost</th><th style="background: rgba(255, 193, 7, 0.30)">total_cost</th></tr>
+<tr><td style="background: rgba(255, 193, 7, 0.30)">1</td><td style="background: rgba(255, 193, 7, 0.30)">1</td><td>667.9</td><td>19,846.9</td><td>47.6</td><td style="background: rgba(255, 193, 7, 0.30)">20,562.5</td></tr>
+<tr><td style="background: rgba(255, 193, 7, 0.30); font-weight: bold">1</td><td style="background: rgba(255, 193, 7, 0.30); font-weight: bold">2</td><td>667.9</td><td>45,026.8</td><td>31.9</td><td style="background: rgba(255, 193, 7, 0.30); font-weight: bold">45,726.6</td></tr>
+<tr><td style="background: rgba(255, 193, 7, 0.30)">1</td><td style="background: rgba(255, 193, 7, 0.30)">3</td><td>667.9</td><td>17,644.2</td><td>173.5</td><td style="background: rgba(255, 193, 7, 0.30)">18,485.6</td></tr>
+<tr><td style="background: rgba(255, 193, 7, 0.30)">…</td><td style="background: rgba(255, 193, 7, 0.30)">…</td><td>…</td><td>…</td><td>…</td><td style="background: rgba(255, 193, 7, 0.30)">…</td></tr>
+<tr><td style="background: rgba(255, 193, 7, 0.30)">2</td><td style="background: rgba(255, 193, 7, 0.30)">1</td><td>716.4</td><td>22,304.9</td><td>47.6</td><td style="background: rgba(255, 193, 7, 0.30)">23,069.0</td></tr>
+<tr><td style="background: rgba(255, 193, 7, 0.30)">2</td><td style="background: rgba(255, 193, 7, 0.30)">2</td><td>716.4</td><td>47,484.8</td><td>31.9</td><td style="background: rgba(255, 193, 7, 0.30)">48,233.1</td></tr>
+<tr><td style="background: rgba(255, 193, 7, 0.30)">2</td><td style="background: rgba(255, 193, 7, 0.30)">3</td><td>716.4</td><td>20,102.2</td><td>173.5</td><td style="background: rgba(255, 193, 7, 0.30)">20,992.1</td></tr>
+<tr><td style="background: rgba(255, 193, 7, 0.30)">…</td><td style="background: rgba(255, 193, 7, 0.30)">…</td><td>…</td><td>…</td><td>…</td><td style="background: rgba(255, 193, 7, 0.30)">…</td></tr>
+</table>
+</div>
+
+`distmat` after the code has one row for each hexagon, 3,125 rows, and 121 columns: `origin_id` and
+one column for each of the 120 centres. The distance from hexagon 1 to centre 2 is in row 1, column
+`2`:
+
+<div style="overflow-x: auto;">
+<table class="table table-sm">
+<tr><th>origin_id</th><th>1</th><th>2</th><th>3</th><th>…</th><th>133</th></tr>
+<tr><td>1</td><td>20,562.5</td><td style="font-weight: bold">45,726.6</td><td>18,485.6</td><td>…</td><td>22,919.6</td></tr>
+<tr><td>2</td><td>23,069.0</td><td>48,233.1</td><td>20,992.1</td><td>…</td><td>25,426.2</td></tr>
+<tr><td>…</td><td>…</td><td>…</td><td>…</td><td>…</td><td>…</td></tr>
+</table>
+</div>
+
+`identical()` compares two vectors position by position, and returns `TRUE` only when every position
+holds the same value. The table shows the first positions of the column names of `distmat` and of
+`eldercare$fid`.
+
+| | 1st | 2nd | 3rd | 4th | 5th | 6th | 7th | … |
+|------------------------------------|------|------|------|------|------|------|------|------|
+| column names of `distmat` | 1 | 2 | 3 | 4 | 5 | 6 | 8 | … |
+| `eldercare$fid` | 1 | 2 | 3 | 4 | 5 | 6 | 8 | … |
+| the same names sorted as text | 1 | **10** | **100** | **101** | **103** | **104** | **105** | … |
+
+The column names of `distmat` and `eldercare$fid` are the same at every position, so `identical()`
+returns `TRUE`. If the columns had been sorted as text, `identical()` would return `FALSE`, because
+of the bold values. Then `ac()` would pair the second column, centre 10, with the capacity of
+centre 2.
+:::
+
+`ac()` matches the matrix to the demand and the capacity by position: row $i$ to the $i$-th hexagon,
+column $j$ to the $j$-th centre. The chapter's code includes no check of the order. The row check
+and the column check return `TRUE`, so the rows of `distmat` follow the order of `hexagons` and the
+columns follow the order of `eldercare`.
+
+The 120 centres have identifiers between 1 and 133, with gaps. The columns of `distmat` follow the
+order of the identifiers. After the first gap, the `fid` of the $j$-th centre is larger than $j$.
+
+The first column of `distmat` holds `origin_id`. The column is removed, and the distances are
+converted from metres to kilometres:
+
+```{r}
+distmat <- distmat |>
+  select(-origin_id)
+
+distmat_km <- as.matrix(distmat / 1000)
+dim(distmat_km)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+as.matrix(x)                                              # base R
+```
+
+- `select(-origin_id)` drops the identifier column. In the chapter's code, the same step is
+  `select(c(-c('origin_id')))`.
+- Dividing the tibble by 1000 converts every distance from metres to kilometres. `as.matrix()`
+  converts the result to a numeric matrix of 3,125 rows and 120 columns.
+- `ac()` converts its argument `D` to a matrix in the first line of its source (section 4.2), so
+  `ac()` gives the same scores for the tibble as for the matrix. The matrix is needed in sections
+  4.3 and 4.4, where the distances are multiplied with `%*%`, which takes only matrices.
+:::
+
+According to the chapter, "the distance is measured in metre because SVY21 projected coordinate
+system is used". The distances are along roads. Their unit comes from the network analysis that
+produced the file. The conversion to kilometres changes the scores, because the Hansen and KD2SFCA
+formulas in `ac()` raise e to a power of the distance (section 4.2): the same distance gives a
+different weight in metres than in kilometres.
+
+# Part 1: Chapter 17
+
+This part follows r4gdsa [Chapter 17](https://r4gdsa.netlify.app/chap17.html), sections 17.6 to
+17.8. The Hansen, KD2SFCA and SAM measures are each computed with `ac()`, joined to the hexagons,
+mapped, and compared across the five regions of the Master Plan.
+
+## Hansen's potential model
+
+::: {.callout-tip collapse="false"}
+## The potential model of Hansen (1959)
+
+Hansen (1959) defines accessibility as "the potential of opportunities for interaction". The
+definition comes from Stewart's potential of population (slide 19). Hansen describes that potential
+as "directly proportional to the size of the group (activity level) and inversely proportional to
+the distance or separation from that group". In Hansen's formula, the accessibility of zone $i$ is a
+sum over all zones $j$. In this exercise, zone $i$ is a hexagon and zone $j$ is an eldercare centre:
+
+$$A_i = \sum_j \frac{S_j}{T_{ij}^{\,x}} = \sum_j \frac{\text{capacity of centre } j}{(\text{road distance from hexagon } i \text{ to centre } j)^{x}}$$
+
+$x$ is an exponent of distance. The contribution of a centre to the score of a hexagon increases
+with the capacity of the centre and decreases with the distance between the centre and the hexagon.
+A larger $x$ makes the contribution decrease faster with distance. In the speaker notes of slide 7,
+the power function is traced to Newton's law of gravitation, the origin of the term gravity model.
+According to the same notes, $x$ is large for grocery shopping, because people travel only a short
+distance for groceries. For furniture shopping, $x$ is small, because people travel farther than for
+groceries. The formula has no catchment, so every centre adds to the score of every hexagon, at any
+distance.
+
+The example below has one hexagon and three centres, with $x = 2$. The distances and capacities are
+invented for this example. A line joins the hexagon to each centre. A wider line marks a larger term
+$S_j/T_{ij}^2$.
+
+```{r}
+#| echo: false
+#| fig-height: 4.5
+hx <- tibble(centre = c("A", "B", "C"), d = c(1, 2, 2), capacity = c(100, 100, 400),
+             angle = c(10, 135, 205) * pi / 180) |>
+  mutate(x = d * cos(angle), y = d * sin(angle),
+         term = capacity / d^2,
+         label = sprintf("capacity %d, %d km\n%d / %d² = %g", capacity, d, capacity, d, term),
+         label_x = x + c(0.35, -0.35, -0.45),
+         hjust = c(0, 1, 1))
+hx_rings <- expand_grid(r = c(1, 2), a = seq(0, 2 * pi, length.out = 121)) |>
+  mutate(x = r * cos(a), y = r * sin(a))
+hx_hexagon <- tibble(a = seq(0, 300, by = 60) * pi / 180) |>
+  mutate(x = 0.3 * cos(a), y = 0.3 * sin(a))
+ggplot() +
+  annotate("rect", xmin = -4.9, xmax = 3.7, ymin = -2.9, ymax = 2.8, fill = "white",
+           colour = "grey65") +
+  annotate("text", x = -4.72, y = 2.66, hjust = 0, vjust = 1, fontface = "bold", size = 4.3,
+           label = sprintf("Score of the hexagon: %s = %g",
+                           paste(hx$term, collapse = " + "), sum(hx$term))) +
+  geom_path(data = hx_rings, aes(x, y, group = r), linetype = "dashed", colour = "grey80") +
+  annotate("text", x = (c(1, 2) + 0.2) * cos(-0.6), y = (c(1, 2) + 0.2) * sin(-0.6),
+           label = c("1 km", "2 km"), colour = "grey50", size = 3.2) +
+  geom_segment(data = hx, aes(x = 0, y = 0, xend = x, yend = y, linewidth = term),
+               colour = "#3182bd", alpha = 0.7) +
+  geom_polygon(data = hx_hexagon, aes(x, y), fill = "#a1d99b", colour = "grey30") +
+  annotate("text", x = 0, y = 0.48, label = "hexagon", size = 3.5) +
+  geom_point(data = hx, aes(x, y, size = capacity), shape = 21, fill = "#3182bd", colour = "grey30") +
+  geom_text(data = hx, aes(x, y - 0.04, label = centre), colour = "white",
+            fontface = "bold", size = 3.5) +
+  geom_text(data = hx, aes(label_x, y, label = label, hjust = hjust), size = 3.6,
+            lineheight = 0.9, colour = "grey20") +
+  scale_linewidth(range = c(1, 3), guide = "none") +
+  scale_size(range = c(9, 13), guide = "none") +
+  coord_equal(xlim = c(-4.9, 3.7), ylim = c(-2.9, 2.8)) +
+  theme_void()
+```
+
+Centre B is twice as far from the hexagon as centre A, so its term is a quarter of the term of
+centre A. Centre C is as far from the hexagon as centre B and has four times the capacity of centre
+B, so the term of centre C is four times the term of centre B, the same as the term of centre A.
+
+Slide 8 shows two forms of distance decay: the power function $\alpha / d^{\beta}$ and the
+exponential function $\alpha e^{-\beta d}$. Hansen (1959, p. 5) uses the power function, which is
+$1/d^2$ with $x = 2$. The `SpatialAcc` manual describes `power` as "the power of the separation
+variable". The source of `ac()`, printed in section 4.2, computes the exponential function: with
+`power = 2`, the value in the chapter's code, the weight is $e^{-2d}$, where $d$ is the road
+distance in kilometres. The table compares the weights of $1/d^2$ and $e^{-2d}$, each relative to
+the weight of a centre 1 km away:
+
+| Function | Formula | 1 km | 2 km | 4 km | 8 km | Rule |
+|----------------------|----------|------------|------------|------------|------------------|----------------------------------------|
+| Hansen (1959), $x = 2$ | $1/d^2$ | 1 | $1/4$ | $1/16$ | $1/64$ | divided by 4 each time the distance doubles |
+| `ac()`, `power = 2` | $e^{-2d}$ | 1 | $1/7$ | $1/403$ | $1/1{,}202{,}604$ | divided by $e^2 = 7.4$ for each extra kilometre |
+
+The weight of the power function depends on the ratio of two distances, and the weight of the
+exponential function on their difference.
+
+:::
+
+### Hansen scores from `ac()`
+
+The distance matrix holds 375,000 road distances, one for each pair of hexagon and centre. The code
+in this section turns them into one Hansen score for each of the 3,125 hexagons, and adds the scores
+to the hexagons as `hexagon_Hansen`. The map of section 3.1.2 and the boxplots of section 3.1.3 are
+drawn from `hexagon_Hansen`.
+
+::: {.callout-tip collapse="false"}
+## The `ac()` function
+
+`ac()` is the function of the `SpatialAcc` package that computes the three measures of Part 1. The
+package is by Stamatis Kalogirou, the first author of the SAM paper (Kalogirou and Foley, 2006). The
+package manual titles `ac()` "Spatial Accessibility Measures". According to the manual, the function
+"measures the accessibility of geographical areas to amenities". Accessibility is defined in section
+1 as "the measure of the capacity of a location to be reached from, or to be reached by, different
+locations".
+
+```r
+ac(p, n, D, d0, power = 2, family = "SAM")
+```
+
+| Argument | Meaning in the manual | In this exercise |
+|--------------|----------------------------------|----------------------------------------------|
+| `p` | the demand for services in each location | the `demand` column of `hexagons` (section 2.3.3) |
+| `n` | the supply of services in each location | the `capacity` column of `eldercare` (section 2.3.3) |
+| `D` | a matrix of a quantity separating the demand from the supply | the road distance in kilometres, one row per hexagon and one column per centre (section 2.4) |
+| `d0` | the threshold distance of the catchment | 5 km, used by KD2SFCA; the value is also passed to SAM but is not used in the SAM formula |
+| `power` | the power of the separation variable | 2, the value in the chapter's code: the weight is $e^{-2d}$ in Hansen, $e^{-d^2}$ in KD2SFCA and $1/d^2$ in SAM |
+| `family` | the accessibility measure | `"Hansen"`, `"KD2SFCA"` or `"SAM"` |
+
+`ac()` returns one value for each element of `p`, here one score for each hexagon. The table below
+shows how the capacity and the demand are used in the Hansen, KD2SFCA and SAM measures:
+
+| Measure | Capacity of a centre (`n`) | Demand of a hexagon (`p`) |
+|-------------------|------------------------------------------|------------------------------------------|
+| Hansen (section 3.1) | factor in the weight of the centre | not used |
+| KD2SFCA (section 3.2) | numerator of the ratio $R_j$ of the centre | denominator of $R_j$, summed over the hexagons in the catchment of the centre |
+| SAM (section 3.3) | numerator of the term of the centre, $n_j / (p_i \, d_{ij}^{\beta})$ | divisor of the score of the hexagon |
+:::
+
+```{r}
+acc_Hansen <- data.frame(ac(hexagons$demand,
+                            eldercare$capacity,
+                            distmat_km,
+                            #d0 = 50,
+                            power = 2,
+                            family = "Hansen"))
+
+colnames(acc_Hansen) <- "accHansen"
+acc_Hansen <- as_tibble(acc_Hansen)
+hexagon_Hansen <- bind_cols(hexagons, acc_Hansen)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+ac(p, n, D, d0, power, family)                            # SpatialAcc
+bind_cols(...)                                            # dplyr
+```
+
+- `ac()` takes the demand of each hexagon (`p`), the capacity of each centre (`n`), the distance
+  matrix (`D`), a catchment distance (`d0`), a decay parameter (`power`) and the measure (`family`).
+  It returns one number for each row of `D`, the accessibility of that hexagon.
+- `data.frame()` turns the vector into a one-column data frame, with a long column name made from
+  the call. `colnames()` renames the column, and `as_tibble()` converts the data frame to a tibble.
+- `bind_cols()` adds the column to `hexagons` by position, so that the $i$-th value goes to the
+  $i$-th hexagon. The result keeps the geometry of `hexagons` and is still an `sf` object.
+- `d0` is commented out because the Hansen measure in `ac()` has no catchment.
+
+Before `bind_cols()`, `hexagons` and `acc_Hansen` each have 3,125 rows. The first score is in bold:
+
+`hexagons`:
+
+<div style="overflow-x: auto;">
+<table class="table table-sm">
+<tr><th>fid</th><th>demand</th><th>geometry</th></tr>
+<tr><td>1</td><td>100</td><td>POLYGON ((2667.5 27506.3, …))</td></tr>
+<tr><td>2</td><td>100</td><td>POLYGON ((2667.5 25006.3, …))</td></tr>
+<tr><td>…</td><td>…</td><td>…</td></tr>
+</table>
+</div>
+
+`acc_Hansen`:
+
+<div style="overflow-x: auto;">
+<table class="table table-sm" style="width: auto;">
+<tr><th>accHansen</th></tr>
+<tr><td style="font-weight: bold">1.6 × 10<sup>−14</sup></td></tr>
+<tr><td>1.1 × 10<sup>−16</sup></td></tr>
+<tr><td>…</td></tr>
+</table>
+</div>
+
+After `bind_cols()`, `hexagon_Hansen` has the new column, which is shaded. The first score is in the
+row of hexagon 1:
+
+<div style="overflow-x: auto;">
+<table class="table table-sm">
+<tr><th>fid</th><th>demand</th><th style="background: rgba(255, 193, 7, 0.30)">accHansen</th><th>geometry</th></tr>
+<tr><td>1</td><td>100</td><td style="background: rgba(255, 193, 7, 0.30); font-weight: bold">1.6 × 10<sup>−14</sup></td><td>POLYGON ((2667.5 27506.3, …))</td></tr>
+<tr><td>2</td><td>100</td><td style="background: rgba(255, 193, 7, 0.30)">1.1 × 10<sup>−16</sup></td><td>POLYGON ((2667.5 25006.3, …))</td></tr>
+<tr><td>…</td><td>…</td><td style="background: rgba(255, 193, 7, 0.30)">…</td><td>…</td></tr>
+</table>
+</div>
+:::
+
+The chapter's code then repeats the computation in a single code chunk, with `power = 0.5`.
+`power = 2` and `power = 0.5` give different scores (section 4.3).
+
+::: {.callout-tip collapse="false"}
+## The Hansen formula in `ac()`
+
+```{r}
+#| echo: false
+half_km <- log(2) / 2
+```
+
+For each hexagon $i$, `ac(family = "Hansen")` adds up the capacity of every centre $j$, each
+multiplied by a weight that falls exponentially with distance (exponential decay, slide 8):
+
+$$A_i = \sum_j n_j \, e^{-\beta d_{ij}} = \sum_j (\text{capacity of centre } j) \times (\text{distance weight of centre } j)$$
+
+where the distance weight is $e^{-\beta d}$, $\beta$ is `power` and $d$ is the road distance in
+kilometres. Every centre contributes to the sum, at any distance. The figure below shows invented
+centres along one road from a hexagon, at 0 m, 347 m, 1 km, 2 km and 3 km, and at the median road
+distance of all pairs of hexagon and centre in the data, `r round(median(distmat_km), 1)` km.
+
+```{r}
+#| echo: false
+#| fig-height: 3.5
+med_km <- median(distmat_km)
+wt <- tibble(d = c(0, log(2) / 2, 1, 2, 3, med_km),
+             pos = c(0, log(2) / 2, 1, 2, 3, 4.4)) |>
+  mutate(w = exp(-2 * d),
+         d_lab = if_else(d < 1, sprintf("%.0f m", d * 1000), sprintf("%.1f km", d)),
+         w_lab = if_else(w > 1e-4, as.character(signif(w, 3)), "about~10^-15"))
+ggplot(wt) +
+  annotate("rect", xmin = -0.35, xmax = 4.95, ymin = -0.45, ymax = 1.8, fill = "white",
+           colour = "grey65") +
+  annotate("text", x = -0.22, y = 1.7, hjust = 0, vjust = 1, fontface = "bold", size = 4.3,
+           label = "Weight of a centre in ac(family = \"Hansen\"), power = 2") +
+  annotate("segment", x = 0, xend = 3.5, y = 0, yend = 0, colour = "grey60", linewidth = 1) +
+  annotate("segment", x = 4.0, xend = 4.7, y = 0, yend = 0, colour = "grey60", linewidth = 1) +
+  annotate("text", x = 3.75, y = 0, label = "//", size = 5, colour = "grey40") +
+  geom_rect(aes(xmin = pos - 0.07, xmax = pos + 0.07, ymin = 0.12, ymax = 0.12 + w),
+            fill = "#3182bd") +
+  geom_text(aes(pos, 0.12 + w, label = w_lab), vjust = -0.5, size = 3.5, parse = TRUE) +
+  geom_point(data = filter(wt, d > 0), aes(pos, 0), shape = 21, size = 5, fill = "#3182bd", colour = "grey30") +
+  geom_polygon(data = tibble(a = seq(0, 300, by = 60) * pi / 180,
+                             x = 0.1 * cos(a), y = 0.1 * sin(a)),
+               aes(x, y), fill = "#a1d99b", colour = "grey30") +
+  geom_text(aes(pos, -0.17, label = d_lab), size = 3.4, colour = "grey30") +
+  annotate("text", x = 0, y = -0.31, label = "hexagon", size = 3.3) +
+  annotate("text", x = 4.4, y = -0.31, label = "median distance", size = 3.3,
+           colour = "grey30") +
+  coord_fixed(xlim = c(-0.35, 4.95), ylim = c(-0.45, 1.8)) +
+  theme_void()
+```
+
+With $\beta = 2$, the weight is 1 for a centre at the hexagon and halves
+every `r round(half_km * 1000)` m. A centre 1 km away has a weight of `r round(exp(-2), 3)`. A
+centre at the median distance has a weight of about $10^{-15}$.
+
+The weight $e^{-\beta d}$ falls faster with distance as $\beta$ increases (chart below, as on slide
+8). The chapter's code uses $\beta = 2$, drawn as the thick line.
+
+```{r}
+#| echo: false
+#| fig-height: 4
+decay_chart <- function(curves, x_title = "road distance d (km)", y_title = "weight") {
+  p <- plotly::plot_ly()
+  for (k in unique(curves$curve)) {
+    cv <- curves[curves$curve == k, ]
+    p <- plotly::add_lines(p, data = cv, x = ~d, y = ~w, name = k,
+                           line = list(width = if (cv$main[1]) 4 else 2,
+                                       dash = if (cv$step[1]) "dash" else "solid"),
+                           hovertemplate = paste0(k, "<br>d = %{x:.2f} km<br>weight = %{y:.4g}",
+                                                  "<extra></extra>"))
+  }
+  plotly::layout(p, xaxis = list(title = x_title, zeroline = FALSE),
+                 yaxis = list(title = y_title, rangemode = "tozero"),
+                 legend = list(x = 0.72, y = 0.95),
+                 hovermode = "closest")
+}
+expand_grid(beta = c(0.5, 1, 1.5, 2, 2.5), d = seq(0, 5, by = 0.02)) |>
+  mutate(w = exp(-beta * d), curve = if_else(beta == 2, "β = 2 (chapter's code)", paste0("β = ", beta)),
+         main = beta == 2, step = FALSE) |>
+  decay_chart()
+```
+:::
+
+::: {.callout-tip collapse="false"}
+## Limits of the Hansen measure
+
+**No demand term.** The formula contains the capacity $n_j$ and the distance $d_{ij}$. It has no
+demand term $p_i$. Two hexagons at the same distances from the same centres get the same score,
+whether 10 or 10,000 residents aged 65 and over live in them. Luo and Wang (2003, equation 5) note
+this limitation of Hansen's model: the model "considers only the 'supply side'". In the example
+below, two invented hexagons are 1 km from the same centre, which has a capacity of 100.
+
+```{r}
+#| echo: false
+#| fig-height: 2.8
+dm_hexagon <- function(cx, r = 0.62) {
+  tibble(a = seq(0, 300, by = 60) * pi / 180) |>
+    mutate(x = cx + r * cos(a), y = r * sin(a))
+}
+dm <- tibble(x = c(-1.9, 1.9), aged = c(10, 10000), fill = c("#d9f0d3", "#41ab5d"),
+             ink = c("black", "white")) |>
+  mutate(inside = sprintf("%s\nresidents\naged 65+", format(aged, big.mark = ",")))
+ggplot() +
+  geom_segment(data = dm, aes(x = x, y = 0, xend = 0, yend = 0), colour = "#3182bd",
+               linewidth = 1.5, alpha = 0.7) +
+  annotate("text", x = c(-0.95, 0.95), y = 0.17, label = "1 km", size = 4.5, colour = "grey30") +
+  geom_polygon(data = dm_hexagon(dm$x[1]), aes(x, y), fill = dm$fill[1], colour = "grey30") +
+  geom_polygon(data = dm_hexagon(dm$x[2]), aes(x, y), fill = dm$fill[2], colour = "grey30") +
+  geom_text(data = dm, aes(x, 0, label = inside), colour = dm$ink, size = 4.6,
+            lineheight = 0.9, fontface = "bold") +
+  annotate("text", x = dm$x, y = -0.88, size = 5, parse = TRUE,
+           label = 'score*":"~100 %*% 0.135 == bold("13.5")') +
+  annotate("point", x = 0, y = 0, shape = 21, size = 11, fill = "#3182bd", colour = "grey30") +
+  annotate("text", x = 0, y = -0.03, label = "A", colour = "white", fontface = "bold",
+           size = 4.5) +
+  annotate("text", x = 0, y = -0.4, label = "capacity 100", colour = "grey20", size = 4.5) +
+  coord_equal(xlim = c(-2.8, 2.8), ylim = c(-1.05, 0.7)) +
+  theme_void()
+```
+
+**No unit.** The score is a sum of weighted capacities, with no unit such as places per resident. A
+score of 42.5 cannot be interpreted on its own. Scores can only be compared with each other, for
+example to rank the hexagons. According to Long (2017, section 3), for such measures "there is no
+clear definition of what a high or low value should be, all analysis must be relative".
+:::
+
+### Decile map of the Hansen scores
+
+```{r}
+mapex <- st_bbox(hexagons)
+```
+
+```{r}
+#| fig-height: 7
+tm_shape(hexagon_Hansen,
+         bbox = mapex) +
+  tm_polygons(fill = "accHansen",
+              fill.scale = tm_scale_intervals(
+                style = "quantile",
+                n = 10,
+                values = "brewer.blues"),
+              fill.legend = tm_legend(title = "Hansen score"),
+              col_alpha = 0.3) +
+tm_shape(eldercare) +
+  tm_dots(size = 0.3,
+          fill = "red",
+          col = "black") +
+  tm_title("Accessibility to eldercare: Hansen method") +
+  tm_layout(frame = TRUE) +
+  tm_compass(type = "8star", size = 2) +
+  tm_scalebar() +
+  tm_grid(alpha = 0.2)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+st_bbox(obj)                                              # sf
+tm_shape(shp, bbox)                                       # tmap
+tm_polygons(fill, fill.scale, col_alpha)                  # tmap
+tm_scale_intervals(style, n, values)                      # tmap
+tm_dots(size, fill, col)                                  # tmap
+tm_title(); tm_compass(); tm_scalebar(); tm_grid()        # tmap
+```
+
+- `st_bbox()` returns the bounding box of the hexagons: x
+  from `r format(round(mapex[["xmin"]]), big.mark = ",")`
+  to `r format(round(mapex[["xmax"]]), big.mark = ",")` m and y
+  from `r format(round(mapex[["ymin"]]), big.mark = ",")`
+  to `r format(round(mapex[["ymax"]]), big.mark = ",")` m in SVY21. Passed to
+  `tm_shape(bbox = mapex)`, the box fixes the extent of the map. Each map in Part 1 shows the
+  hexagons, which have this extent already, so the maps have the same extent without `bbox`.
+- `tm_polygons(fill = "accHansen")` colours each hexagon by its score.
+  `tm_scale_intervals(style = "quantile", n = 10)` divides the hexagons into ten classes of equal
+  size (deciles), coloured from light to dark blue. `col_alpha = 0.3`, an addition to the chapter's
+  code, lightens the hexagon borders.
+- The second `tm_shape()` adds the centres, drawn by `tm_dots()` as red points with a black border.
+- `tm_compass()`, `tm_scalebar()` and `tm_grid()` add a north arrow, a scale bar and a light
+  coordinate grid.
+
+In the invented example below, a layer has five hexagons. The maps in steps 3 and 4 show two of
+them. In steps 3 and 4, the other three hexagons are faded because they are left out of the map.
+
+```{r}
+#| echo: false
+#| fig-height: 7.2
+bb_hex <- tibble(id = 1:5, cx = c(1.2, 3.4, 2.2, 5.0, 1.6), cy = c(1.2, 1.6, 3.0, 3.4, 4.6),
+                 in_map = id %in% c(2, 3))
+bb_poly <- bb_hex |>
+  rowwise() |>
+  reframe(id, in_map, tibble(a = seq(0, 300, by = 60) * pi / 180) |>
+            mutate(x = cx + 0.5 * cos(a), y = cy + 0.5 * sin(a)))
+bb <- c(xmin = min(bb_poly$x), xmax = max(bb_poly$x), ymin = min(bb_poly$y), ymax = max(bb_poly$y))
+bb_two <- bb_poly |>
+  filter(in_map) |>
+  summarise(xmin = min(x), xmax = max(x), ymin = min(y), ymax = max(y))
+bb_panel <- function(title, faded = FALSE, box = NULL, box_col = "#3182bd", box_lty = "dashed",
+                     box_labels = FALSE) {
+  d <- bb_poly |> mutate(show = if (faded) in_map else TRUE)
+  g <- ggplot() +
+    annotate("rect", xmin = -0.3, xmax = 6.3, ymin = -0.2, ymax = 6.6, fill = "white",
+             colour = "grey65") +
+    annotate("text", x = -0.15, y = 6.45, hjust = 0, vjust = 1, label = title, size = 4,
+             fontface = "bold", lineheight = 0.9) +
+    geom_polygon(data = d, aes(x, y, group = id, alpha = show), fill = "#a1d99b", colour = "grey30")
+  if (!is.null(box)) {
+    g <- g + annotate("rect", xmin = box[["xmin"]], xmax = box[["xmax"]], ymin = box[["ymin"]],
+                      ymax = box[["ymax"]], fill = NA, colour = box_col, linetype = box_lty,
+                      linewidth = 1.1)
+  }
+  if (box_labels) {
+    g <- g + annotate("text", size = 3.6, colour = "#08519c",
+                      x = c(bb[["xmin"]], bb[["xmax"]], 3.1, 3.1),
+                      y = c(0.2, 0.2, bb[["ymin"]] - 0.25, bb[["ymax"]] + 0.25),
+                      label = c("xmin", "xmax", "ymin", "ymax"))
+  }
+  g + scale_alpha_manual(values = c(`TRUE` = 1, `FALSE` = 0.15), guide = "none") +
+    coord_equal(xlim = c(-0.3, 6.3), ylim = c(-0.2, 6.6), expand = FALSE) +
+    theme_void()
+}
+(bb_panel("1. A layer of five hexagons") |
+   bb_panel("2. st_bbox() returns the box\naround the five hexagons", box = bb,
+            box_labels = TRUE)) /
+  (bb_panel("3. Map of two hexagons with\nbbox: the frame is the box", faded = TRUE, box = bb,
+            box_col = "black", box_lty = "solid") |
+   bb_panel("4. The same map without bbox:\nthe frame fits the two hexagons", faded = TRUE,
+            box = unlist(bb_two), box_col = "black", box_lty = "solid"))
+```
+:::
+
+```{r}
+#| echo: false
+h_q <- quantile(hexagon_Hansen$accHansen, c(0.1, 0.5, 0.9))
+one_dist <- ODMatrix |>
+  group_by(origin_id) |>
+  summarise(k = n_distinct(total_cost)) |>
+  filter(k == 1) |>
+  pull(origin_id)
+h_tab <- hexagon_Hansen |>
+  mutate(near = apply(distmat_km, 1, min),
+         n2 = rowSums(distmat_km <= 2),
+         group = cut(accHansen, c(-Inf, h_q[1], h_q[3], Inf), c("bottom", "middle", "top")),
+         one_dist = fid %in% one_dist) |>
+  st_join(mpsz[c("PLN_AREA_N", "REGION_N")], join = st_intersects, largest = TRUE) |>
+  st_drop_geometry()
+sci <- function(x) {
+  e <- floor(log10(x))
+  sprintf("$%.1f \\times 10^{%d}$", x / 10^e, e)
+}
+near_range <- function(g) {
+  d <- h_tab$near[h_tab$group == g]
+  sprintf("%.2f to %.2f km (median %.2f)", min(d), max(d), median(d))
+}
+top_areas_of <- function(g) {
+  h_tab |>
+    filter(group == g) |>
+    count(PLN_AREA_N, sort = TRUE) |>
+    slice_head(n = 4) |>
+    pull(PLN_AREA_N) |>
+    str_to_title() |>
+    paste(collapse = ", ")
+}
+h_max <- h_tab |> slice_max(accHansen, n = 1)
+h_min <- h_tab |> slice_min(accHansen, n = 1, with_ties = TRUE)
+bottom_near <- median(h_tab$near[h_tab$group == "bottom"])
+score_median <- function(g) {
+  m <- median(h_tab$accHansen[h_tab$group == g])
+  if (m < 1e-3) sci(m) else as.character(signif(m, 3))
+}
+```
+
+The classes are deciles: the 3,125 hexagons are sorted from the lowest score to the highest and
+divided into ten groups of 312 or 313 hexagons, about 10% of the hexagons each. The colour of a
+hexagon shows its decile. The table summarises the top decile, the middle 80% and the bottom decile:
+
+| Hexagons | Hansen score | Nearest centre by road | Planning areas with the most hexagons |
+|------------|-------------------------------------|-------------------------------|----------------------------------------------|
+| Top 10% | `r signif(h_q[3], 3)` to `r round(max(h_tab$accHansen))` (median `r score_median("top")`) | `r near_range("top")` | `r top_areas_of("top")` |
+| Middle 80% | `r sci(h_q[1])` to `r signif(h_q[3], 3)` (median `r score_median("middle")`) | `r near_range("middle")` | spread over all `r c("one", "two", "three", "four", "five")[n_distinct(h_tab$REGION_N[h_tab$group == "middle"])]` regions |
+| Bottom 10% | `r sci(min(h_tab$accHansen))` to `r sci(h_q[1])` (median `r score_median("bottom")`) | `r near_range("bottom")` | `r top_areas_of("bottom")` |
+
+Of the `r sum(h_tab$group == "bottom")` hexagons in the bottom
+decile, `r sum(h_tab$group == "bottom" & h_tab$one_dist)` have the same road distance to all 120
+centres, an error in the distance matrix described in section 4.1.
+
+The scores range over `r floor(log10(max(h_tab$accHansen) / min(h_tab$accHansen)))` orders of
+magnitude, because the weight $e^{-2d}$ falls by a factor of 7.4 for each kilometre:
+
+- The highest score, `r round(h_max$accHansen)`, is at a hexagon
+  in `r str_to_title(h_max$PLN_AREA_N)`. Its nearest centre is `r round(h_max$near, 2)` km away by
+  road, with a weight of `r round(exp(-2 * h_max$near), 2)`. The hexagon has `r h_max$n2` centres
+  within 2 km by road.
+- In the bottom decile, the median distance to the nearest centre is `r round(bottom_near, 2)` km. A
+  centre at that distance has a weight of about `r sci(exp(-2 * bottom_near))`.
+- The highest score is more than
+  $10^{`r floor(log10(max(h_tab$accHansen) / min(h_tab$accHansen)))`}$ times the lowest score.
+- The lowest score is shared by hexagons `r paste(h_min$fid, collapse = " and ")`
+  in `r str_to_title(unique(h_min$PLN_AREA_N))`, each with the same road distance
+  of `r round(h_min$near[1], 1)` km to every centre, the error described in section 4.1.
+
+The map below labels the planning areas that have the most hexagons in the top and bottom deciles.
+
+::: {.panel-tabset}
+#### Map
+
+```{r}
+#| label: hansen-named-map
+#| echo: false
+#| fig-height: 6
+areas_of <- function(g) {
+  h_tab |>
+    filter(group == g) |>
+    count(PLN_AREA_N, sort = TRUE) |>
+    slice_head(n = 4) |>
+    pull(PLN_AREA_N)
+}
+named_areas <- mpsz |>
+  filter(PLN_AREA_N %in% c(areas_of("top"), areas_of("bottom"))) |>
+  group_by(PLN_AREA_N) |>
+  summarise() |>
+  st_cast("MULTIPOLYGON") |>
+  st_cast("POLYGON") |>
+  mutate(area = st_area(geometry)) |>
+  group_by(PLN_AREA_N) |>
+  slice_max(area, n = 1) |>
+  ungroup() |>
+  mutate(label = str_to_title(PLN_AREA_N),
+         label = if_else(PLN_AREA_N == "WESTERN ISLANDS", "Jurong Island\n(Western Islands)",
+                         label))
+tm_shape(hexagon_Hansen, bbox = mapex) +
+  tm_polygons(fill = "accHansen",
+              fill.scale = tm_scale_intervals(style = "quantile", n = 10,
+                                              values = "brewer.blues",
+                                              labels = c("1 (lowest)", 2:9, "10 (highest)")),
+              fill.legend = tm_legend(title = "Decile of the\nHansen score"),
+              col_alpha = 0.3) +
+tm_shape(named_areas) +
+  tm_borders(col = "black", lwd = 1.2) +
+  tm_text("label", size = 0.75, fontface = "bold", bgcol = "white", bgcol_alpha = 0.75) +
+  tm_title("Planning areas with the most hexagons in the top and bottom deciles") +
+  tm_layout(frame = FALSE, legend.outside = TRUE)
+```
+
+#### Code
+
+```{r}
+#| ref.label: hansen-named-map
+#| eval: false
+```
+:::
+
+### Hansen scores by region
+
+```{r}
+hexagon_Hansen <- st_join(hexagon_Hansen, mpsz,
+                          join = st_intersects)
+nrow(hexagon_Hansen)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+st_join(x, y, join = st_intersects)                       # sf
+```
+
+- `st_join()` adds the columns of `mpsz` to each hexagon whose geometry intersects a subzone. A
+  hexagon that touches several subzones appears once for each of them.
+:::
+
+The join returns `r format(nrow(hexagon_Hansen), big.mark = ",")` rows for 3,125 hexagons. In the
+boxplots below, a hexagon is counted once for each subzone it touches, so a hexagon on a subzone
+boundary has more weight than a hexagon inside one.
+
+```{r}
+#| fig-height: 4.5
+ggplot(data = hexagon_Hansen,
+       aes(y = log(accHansen),
+           x = REGION_N)) +
+  geom_boxplot(outlier.size = 0.6, linewidth = 0.4) +
+  geom_point(stat = "summary",
+             fun = "mean",
+             colour = "red",
+             size = 2) +
+  scale_x_discrete(labels = \(x) str_to_title(str_remove(x, " REGION"))) +
+  labs(x = NULL, y = "log of the Hansen score") +
+  theme_minimal(base_size = 12)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+geom_boxplot()                                            # ggplot2
+geom_point(stat = "summary", fun = "mean")                # ggplot2
+```
+
+- `aes(y = log(accHansen), x = REGION_N)` draws one box per region, on the natural logarithm of the
+  score. Without the logarithm, every box would be a thin band near zero, because the scores range
+  from below $10^{-20}$ to 198.
+- `geom_point(stat = "summary", fun = "mean")` adds the mean of each region as a red point. The
+  chapter's code uses `fun.y`, which `ggplot2` has replaced with `fun` since version 3.3.0.
+:::
+
+```{r}
+#| echo: false
+h_reg <- hexagon_Hansen |>
+  st_drop_geometry() |>
+  group_by(REGION_N) |>
+  summarise(med = median(log(accHansen)),
+            mean = mean(log(accHansen))) |>
+  left_join(st_join(eldercare, mpsz["REGION_N"]) |>
+              st_drop_geometry() |>
+              count(REGION_N, name = "centres"),
+            by = "REGION_N")
+h_low <- hexagon_Hansen |>
+  st_drop_geometry() |>
+  filter(accHansen < 1e-11) |>
+  distinct(fid, REGION_N, PLN_AREA_N) |>
+  mutate(one_dist = fid %in% one_dist)
+reg_of <- \(r, v) h_reg[[v]][h_reg$REGION_N == r]
+```
+
+**Reading the chart.**
+
+- The vertical axis is the natural logarithm of the score. A step of 1 on the axis is a factor of $e
+  = 2.7$ on the original scale:
+
+  | Log score | 5 | 0 | −5 | −25 | −50 |
+  |-------------|-----------|---------|------------|------------------------|------------------------|
+  | Score | `r round(exp(5))` | 1 | `r signif(exp(-5), 2)` | `r sci(exp(-25))` | `r sci(exp(-50))` |
+
+- The black line in each box is the median. The box holds the middle half of the hexagons of the
+  region. The red point is the mean.
+
+**Regions.**
+
+```{r}
+#| echo: false
+h_reg |>
+  transmute(Region = str_to_title(REGION_N),
+            `Eldercare centres` = centres,
+            `Median log score` = round(med, 1),
+            `Median score` = as.character(signif(exp(med), 2)),
+            `Mean log score` = round(mean, 1)) |>
+  kable()
+```
+
+- The Central Region has the highest median, `r round(reg_of("CENTRAL REGION", "med"), 1)` on the
+  log scale (`r signif(exp(reg_of("CENTRAL REGION", "med")), 2)` on the original scale). The region
+  has `r reg_of("CENTRAL REGION", "centres")` of the 120 centres.
+- The West Region has the lowest median, `r round(reg_of("WEST REGION", "med"), 1)` on the log scale
+  (`r signif(exp(reg_of("WEST REGION", "med")), 2)` on the original scale). The medians of the
+  Central and West regions differ by a factor of
+  about `r format(signif(exp(diff(range(h_reg$med))), 2), big.mark = ",")`.
+- In every region, the mean is below the median. The log scores of each region have a long lower
+  tail, which lowers the mean more than the median.
+- Scores below $10^{-11}$ are in the East Region, mainly in Changi, and in the West Region, mainly
+  in Tuas and Jurong Island. In the Central, North and North-East regions,
+  the `r sum(h_low$REGION_N %in% c("CENTRAL REGION", "NORTH REGION", "NORTH-EAST REGION"))` hexagons
+  with scores below $10^{-11}$ all have the same road distance to every centre, an error in the
+  distance matrix described in section 4.1.
+
+## Kernel density two-step floating catchment area (KD2SFCA)
+
+::: {.callout-tip collapse="false"}
+## Floating catchment area methods
+
+KD2SFCA is the two-step floating catchment area method (2SFCA) with a distance weight inside the
+catchment. On slide 24, 2SFCA is described as "a special case of a potential model". The table
+explains the three terms in the name 2SFCA:
+
+| Term | Meaning |
+|----------------|--------------------------------------------------------------------------------------|
+| catchment | the area within a threshold distance $d_0$ of a point, here 5 km by road |
+| floating | a catchment of the same size, drawn around one point after another |
+| two-step | a catchment drawn twice: around every centre in step 1, then around every hexagon in step 2 |
+
+In Luo and Wang (2003), the circle "floats from one centroid to another while its radius remains the
+same". They trace 2SFCA to an earlier floating catchment area method with one step. That method
+draws a circle around each residential location. The accessibility of the location is the ratio of
+physicians to residents inside the circle, as if those physicians served only those residents. Luo
+and Wang (2003) call this assumption "obviously faulty": a physician inside the circle also serves
+residents outside it.
+
+Slides 25 and 26 show the two steps of 2SFCA, with physicians as the supply and residents as the
+demand. In this exercise, the supply is the capacity of a centre and the demand is the population of
+a hexagon:
+
+1. **Step 1, from each centre.** The ratio $R_j$ is the capacity of centre $j$ divided by the demand
+   of all hexagons within $d_0$ of the centre. $R_j$ is the capacity per person in the catchment of
+   the centre. When more people live in the catchment, $R_j$ is smaller.
+2. **Step 2, from each hexagon.** The accessibility $A_i$ of hexagon $i$ is the sum of $R_j$ over
+   all centres within $d_0$ of the hexagon.
+
+The figure below shows the two steps with invented numbers and a catchment of 5 km. Hexagons and
+centres outside the circle are faded, because they are left out of the calculation.
+
+```{r}
+#| echo: false
+#| fig-height: 4.3
+fc_hexagon <- function(cx, cy, r = 0.6) {
+  tibble(a = seq(0, 300, by = 60) * pi / 180) |>
+    mutate(x = cx + r * cos(a), y = cy + r * sin(a))
+}
+fc_ring <- tibble(a = seq(0, 2 * pi, length.out = 121)) |>
+  mutate(x = 5 * cos(a), y = 5 * sin(a))
+fc_panel <- function(hexes, centres, title, subtitle) {
+  hex_poly <- hexes |>
+    rowwise() |>
+    reframe(id, inside, fc_hexagon(x, y))
+  ggplot() +
+    geom_polygon(data = fc_ring, aes(x, y), fill = "#deebf7", colour = "#3182bd",
+                 linewidth = 0.8, alpha = 0.6) +
+    annotate("text", x = 0, y = -5.5, label = "5 km", colour = "grey30", size = 3.5) +
+    geom_polygon(data = hex_poly, aes(x, y, group = id, alpha = inside), fill = "#a1d99b",
+                 colour = "grey30") +
+    geom_text(data = hexes, aes(x, y - 1, label = label, alpha = inside), size = 3.5) +
+    geom_point(data = centres, aes(x, y, alpha = inside), shape = 21, size = 10,
+               fill = "#3182bd", colour = "grey30") +
+    geom_text(data = centres, aes(x, y - 0.1, label = id), colour = "white",
+              fontface = "bold", size = 3.5) +
+    geom_text(data = centres, aes(x, y - 1, label = label, alpha = inside), colour = "grey20",
+              size = 3.5) +
+    scale_alpha_manual(values = c(`TRUE` = 1, `FALSE` = 0.3), guide = "none") +
+    coord_equal(xlim = c(-8, 8), ylim = c(-6, 6)) +
+    labs(title = title, subtitle = subtitle) +
+    theme_void() +
+    theme(plot.title = element_text(size = 11, face = "bold", hjust = 0.5),
+          plot.subtitle = element_text(size = 10, hjust = 0.5))
+}
+step1 <- fc_panel(
+  hexes = tibble(id = 1:4, x = c(-2.5, 2.5, 0, 6.6), y = c(1.5, 1.5, -3, 3),
+                 label = "100 people", inside = c(TRUE, TRUE, TRUE, FALSE)),
+  centres = tibble(id = "A", x = 0, y = 0, label = "capacity 3", inside = TRUE),
+  title = "Step 1: a circle around each centre",
+  subtitle = "ratio of centre A = 3 / (100 + 100 + 100) = 0.01")
+step2 <- fc_panel(
+  hexes = tibble(id = 1, x = 0, y = 0, label = "the hexagon", inside = TRUE),
+  centres = tibble(id = c("A", "B", "C"), x = c(-2.8, 2.8, 6.6), y = c(1.8, 1.8, -3.5),
+                   label = c("ratio 0.01", "ratio 0.02", "ratio 0.05"),
+                   inside = c(TRUE, TRUE, FALSE)),
+  title = "Step 2: a circle around each hexagon",
+  subtitle = "score of the hexagon = 0.01 + 0.02 = 0.03")
+step1 | step2
+```
+
+In step 1, the 300 people within 5 km of centre A share its capacity of 3, so the ratio of centre A
+is 0.01. In step 2, the score of the hexagon is the sum of the ratios of centres A and B, each
+computed in step 1. Centre C is more than 5 km from the hexagon, so its ratio is left out of the
+sum. In step 1, the 5 km circle is drawn around each centre in turn, and in step 2 around each
+hexagon in turn.
+
+The table compares the three measures:
+
+| Measure | Catchment | Demand of the hexagons | Weight of a centre |
+|--------------------|------------------|----------------------------------|------------------------------------------|
+| Hansen (section 3.1) | none: every centre is used | not used | $e^{-\beta d}$, falls with distance |
+| 2SFCA | $d_0$ | divides the capacity in step 1 | 1 inside the catchment, 0 outside |
+| KD2SFCA | $d_0$ | divides the capacity in step 1 | falls with distance inside the catchment, 0 outside |
+
+Polzin et al. (2014) attribute KD2SFCA to Dai and Wang (2011). In KD2SFCA, the demand in step 1 and
+the ratios in step 2 are multiplied by the distance weight. A hexagon 500 m from a centre then has a
+larger weight in the demand of the centre than a hexagon 4.8 km away. The ratio of the centre also
+adds more to the score of the nearer hexagon.
+
+In the example below, three invented hexagons share one centre with a capacity of 100. Hexagons 1
+and 2 are 1 km from the centre. Hexagon 1 has 100 people. Hexagon 2 has 0 people in case X and 400
+people in case Y. Hexagon 3, with 100 people, is 6 km from the centre, outside the 5 km catchment.
+The figure is not to scale.
+
+```{r}
+#| echo: false
+#| fig-height: 2.6
+hk_hexagon <- function(cx, r = 0.4) {
+  tibble(a = seq(0, 300, by = 60) * pi / 180) |>
+    mutate(x = cx + r * cos(a), y = r * sin(a))
+}
+hk <- tibble(id = 1:3, x = c(-2, 2, -6),
+             people = c("100", "case X: 0 people\ncase Y: 400 people", "100"),
+             fill = c("#d9f0d3", "#41ab5d", "#d9f0d3"))
+ggplot() +
+  annotate("segment", x = -6, xend = 2, y = 0, yend = 0, colour = "grey60", linewidth = 1) +
+  annotate("segment", x = -4.4, xend = -4.4, y = -1.2, yend = 1.2, colour = "#3182bd",
+           linetype = "dashed") +
+  annotate("text", x = -4.4, y = 1.45, label = "edge of the 5 km catchment", colour = "#3182bd",
+           size = 3.2) +
+  annotate("text", x = c(-1, 1, -3.2), y = 0.3, label = c("1 km", "1 km", "6 km from A"),
+           size = 3.2, colour = "grey30") +
+  geom_polygon(data = hk_hexagon(hk$x[1]), aes(x, y), fill = hk$fill[1], colour = "grey30") +
+  geom_polygon(data = hk_hexagon(hk$x[2]), aes(x, y), fill = hk$fill[2], colour = "grey30") +
+  geom_polygon(data = hk_hexagon(hk$x[3]), aes(x, y), fill = hk$fill[3], colour = "grey30") +
+  geom_text(data = hk, aes(x, y = 0, label = id), fontface = "bold", size = 3.5,
+            colour = c("black", "white", "black")) +
+  geom_text(data = hk, aes(x, y = -0.6, label = if_else(id == 2, people, paste(people, "people"))),
+            size = 3.3, vjust = 1, lineheight = 0.9) +
+  annotate("point", x = 0, y = 0, shape = 21, size = 8, fill = "#3182bd", colour = "grey30") +
+  annotate("text", x = 0, y = -0.06, label = "A", colour = "white", fontface = "bold",
+           size = 3.3) +
+  annotate("text", x = 0, y = -0.6, label = "capacity 100", colour = "grey20", size = 3.4,
+           vjust = 1) +
+  coord_equal(xlim = c(-7, 3), ylim = c(-1.2, 1.7)) +
+  theme_void()
+```
+
+```{r}
+#| echo: false
+hk_D <- matrix(c(1, 1, 6), ncol = 1)
+hk_case <- function(people_2, family) {
+  ac(c(100, people_2, 100), 100, hk_D, d0 = 5, power = 2, family = family)
+}
+hk_h0 <- hk_case(0, "Hansen");   hk_h4 <- hk_case(400, "Hansen")
+hk_k0 <- hk_case(0, "KD2SFCA");  hk_k4 <- hk_case(400, "KD2SFCA")
+hk_fmt <- \(x) if (x == 0) "0" else if (x < 0.01) sprintf("%.4f", x) else as.character(round(x, 2))
+```
+
+Case X: hexagon 2 is empty. Case Y: 400 people live in hexagon 2.
+
+<div style="overflow-x: auto;">
+<table class="table table-sm">
+<tr><th rowspan="2">Hexagon</th><th colspan="2" style="text-align: center">Hansen, `power = 2`</th><th colspan="2" style="text-align: center">KD2SFCA, `d0 = 5`</th></tr>
+<tr><th>case X</th><th>case Y</th><th>case X</th><th>case Y</th></tr>
+<tr><td>1 (1 km from A)</td><td style="font-weight: bold">`r hk_fmt(hk_h0[1])`</td><td style="font-weight: bold">`r hk_fmt(hk_h4[1])`</td><td>`r hk_fmt(hk_k0[1])`</td><td>`r hk_fmt(hk_k4[1])`</td></tr>
+<tr><td>3 (6 km from A)</td><td>`r hk_fmt(hk_h0[3])`</td><td>`r hk_fmt(hk_h4[3])`</td><td style="font-weight: bold">`r hk_fmt(hk_k0[3])`</td><td style="font-weight: bold">`r hk_fmt(hk_k4[3])`</td></tr>
+</table>
+</div>
+
+- From case X to case Y, the Hansen score of hexagon 1 stays at `r hk_fmt(hk_h4[1])`.
+- From case X to case Y, the KD2SFCA score of hexagon 1 falls from `r hk_fmt(hk_k0[1])`
+  to `r hk_fmt(hk_k4[1])`, because in case Y the 500 people within the catchment share the capacity
+  of 100.
+- Hexagon 3 is 6 km from the centre, outside the catchment, so its KD2SFCA score is 0 in case X and
+  in case Y. Its Hansen score is small, but above 0.
+
+:::
+
+### KD2SFCA scores from `ac()`
+
+The code in this section computes one KD2SFCA score for each of the 3,125 hexagons, with a catchment
+of 5 km, and adds the scores to the hexagons as `hexagon_KD2SFCA`. The map of section 3.2.2 and the
+boxplots of section 3.2.3 are drawn from `hexagon_KD2SFCA`.
+
+```{r}
+acc_KD2SFCA <- data.frame(ac(hexagons$demand,
+                             eldercare$capacity,
+                             distmat_km,
+                             d0 = 5,
+                             power = 2,
+                             family = "KD2SFCA"))
+
+colnames(acc_KD2SFCA) <- "accKD2SFCA"
+acc_KD2SFCA <- as_tibble(acc_KD2SFCA)
+hexagon_KD2SFCA <- bind_cols(hexagons, acc_KD2SFCA)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- The call is the Hansen call of section 3.1.1 with `family = "KD2SFCA"` and a catchment of `d0 = 5`
+  km. In the chapter, the chunk is described as calculating "Hansen's accessibility", a description
+  copied from section 17.6, which covers the Hansen measure.
+:::
+
+::: {.callout-tip collapse="false"}
+## The 2SFCA formula and an example
+
+Luo and Wang (2003, equations 3 and 4) write the two steps as
+
+$$R_j = \frac{S_j}{\sum_{k:\, d_{kj} \le d_0} P_k} = \frac{\text{capacity of centre } j}{\text{demand of the hexagons within } d_0 \text{ of centre } j}$$
+
+$$A_i = \sum_{j:\, d_{ij} \le d_0} R_j = \text{sum of } R_j \text{ over the centres within } d_0 \text{ of hexagon } i$$
+
+where $S_j$ is the capacity of centre $j$ and $P_k$ is the demand of hexagon $k$. In an invented
+example of four hexagons and two centres, centre A has a capacity of 1, centre B has a capacity of
+3, and the catchment is 5 km:
+
+```{r}
+#| echo: false
+toy_D <- matrix(c(1, 2, 4, 6,
+                  6, 4, 2, 1), ncol = 2,
+                dimnames = list(paste("hexagon", 1:4), c("A", "B")))
+toy_p <- c(100, 200, 100, 100)
+toy_n <- c(1, 3)
+toy_R <- toy_n / colSums(toy_p * (toy_D <= 5))
+toy_A <- as.vector((toy_D <= 5) %*% toy_R)
+tibble(` ` = rownames(toy_D),
+       `km to A` = toy_D[, 1], `km to B` = toy_D[, 2],
+       demand = toy_p,
+       `centres within 5 km` = c("A", "A, B", "A, B", "B"),
+       `by hand` = toy_A,
+       `ac(family = "2SFCA")` = ac(toy_p, toy_n, toy_D, d0 = 5, family = "2SFCA")) |>
+  kable(digits = 4)
+```
+
+The scores from `ac()` are the same as the hand calculation for all four hexagons.
+
+**Unit.** The scores have a unit: capacity per person.
+
+**Average.** Luo and Wang (2003) show that the average of the scores, weighted by demand, equals the
+total capacity divided by the total demand. In the example, $(100 \times 0.0025 + 200 \times 0.01 +
+100 \times 0.01 + 100 \times 0.0075) / 500 = 0.008 = 4 / 500$. The same check is applied to the
+eldercare data in section 4.4.
+:::
+
+::: {.callout-tip collapse="false"}
+## The KD2SFCA formula in `ac()`
+
+In KD2SFCA, step 1 and step 2 of 2SFCA are each weighted by a kernel that falls with distance.
+According to the source of `ac()` (section 4.2), the kernel is $e^{-d^{\beta}}$, where $\beta$ is
+`power`:
+
+$$R_j = \frac{n_j}{\sum_{k:\, d_{kj} \le d_0} p_k \, e^{-d_{kj}^{\beta}}}, \qquad A_i = \sum_{j:\, d_{ij} \le d_0} R_j \, e^{-d_{ij}^{\beta}}$$
+
+With `power = 2` and `d0 = 5`, a hexagon or centre inside the 5 km catchment has the weight
+$e^{-d^2}$, with $d$ in kilometres. A hexagon or centre outside the catchment has the weight 0. The
+figure below shows the weight at invented distances along one road from a hexagon.
+
+```{r}
+#| echo: false
+#| fig-height: 3.3
+kd_w <- tibble(d = c(0, 0.5, 1, 2, 3, 5, 6)) |>
+  mutate(w = if_else(d <= 5, exp(-d^2), 0),
+         d_lab = if_else(d < 1, sprintf("%.0f m", d * 1000), sprintf("%g km", d)),
+         e = floor(log10(pmax(w, 1e-300))),
+         w_lab = case_when(w == 0 ~ "0",
+                           w > 1e-4 ~ as.character(signif(w, 2)),
+                           TRUE ~ sprintf("%.1f %%*%% 10^%s", w / 10^e, e)))
+ggplot(kd_w) +
+  annotate("rect", xmin = -0.35, xmax = 6.55, ymin = -0.45, ymax = 1.8, fill = "white",
+           colour = "grey65") +
+  annotate("text", x = -0.22, y = 1.7, hjust = 0, vjust = 1, fontface = "bold", size = 4.3,
+           label = "Weight of a centre in ac(family = \"KD2SFCA\"), power = 2, d0 = 5") +
+  annotate("segment", x = 0, xend = 6.4, y = 0, yend = 0, colour = "grey60", linewidth = 1) +
+  annotate("segment", x = 5.5, xend = 5.5, y = -0.05, yend = 1.15, colour = "#3182bd",
+           linetype = "dashed") +
+  annotate("text", x = 5.5, y = 1.22, label = "edge of the 5 km catchment", size = 3.2,
+           colour = "#3182bd") +
+  geom_rect(aes(xmin = d - 0.08, xmax = d + 0.08, ymin = 0.12, ymax = 0.12 + w),
+            fill = "#3182bd") +
+  geom_text(aes(d, 0.12 + w, label = w_lab), vjust = -0.5, size = 3.5, parse = TRUE) +
+  geom_point(data = filter(kd_w, d > 0), aes(d, 0), shape = 21, size = 5, fill = "#3182bd", colour = "grey30") +
+  geom_polygon(data = tibble(a = seq(0, 300, by = 60) * pi / 180,
+                             x = 0.1 * cos(a), y = 0.1 * sin(a)),
+               aes(x, y), fill = "#a1d99b", colour = "grey30") +
+  geom_text(aes(d, -0.17, label = d_lab), size = 3.4, colour = "grey30") +
+  annotate("text", x = 0, y = -0.31, label = "hexagon", size = 3.3) +
+  coord_fixed(xlim = c(-0.35, 6.55), ylim = c(-0.45, 1.8)) +
+  theme_void()
+```
+
+The weight is 0.37 at 1 km and 0.018 at 2 km. At 5 km, the edge of the catchment, it is $1.4 \times
+10^{-11}$, and beyond 5 km it is 0.
+
+The weight $e^{-d^{\beta}}$ is $e^{-1} = 0.37$ at 1 km for every $\beta$. A larger $\beta$ gives a
+larger weight below 1 km and a smaller weight above it, and every weight is 0 beyond 5 km (chart
+below; the dashed line is 2SFCA, with a weight of 1 inside the catchment).
+
+```{r}
+#| echo: false
+#| fig-height: 4
+bind_rows(
+  expand_grid(beta = c(1, 1.5, 2, 2.5), d = seq(0, 6, by = 0.02)) |>
+    mutate(w = if_else(d <= 5, exp(-d^beta), 0),
+           curve = if_else(beta == 2, "β = 2 (chapter's code)", paste0("β = ", beta)),
+           main = beta == 2, step = FALSE),
+  tibble(d = seq(0, 6, by = 0.02)) |>
+    mutate(w = as.numeric(d <= 5), curve = "2SFCA (weight 1)", main = FALSE, step = TRUE)) |>
+  decay_chart()
+```
+:::
+
+::: {.callout-tip collapse="false"}
+## Limits of the kernel in `ac()`
+
+**No width.** The kernel $e^{-d^2}$ has no parameter for its width, so its shape is the same for any
+catchment. The weight is below 0.02 beyond 2 km, so a centre beyond 2 km has less than 2% of the
+weight of a centre at the hexagon. The kernels of Dai and Wang (2011) and Cheng et al. (2016) are
+scaled by the catchment (section 4.4).
+
+**Unit of distance.** The weight depends on the unit of the distances. A centre 2 km away has a
+weight of 0.018 with distances in kilometres, and a weight of 0 with distances in metres (section
+4.2).
+:::
+
+### Decile map of the KD2SFCA scores
+
+```{r}
+#| fig-height: 7
+tm_shape(hexagon_KD2SFCA,
+         bbox = mapex) +
+  tm_polygons(fill = "accKD2SFCA",
+              fill.scale = tm_scale_intervals(
+                style = "quantile",
+                n = 10,
+                values = "brewer.blues"),
+              fill.legend = tm_legend(title = "KD2SFCA score"),
+              col_alpha = 0.3) +
+tm_shape(eldercare) +
+  tm_dots(size = 0.3,
+          fill = "red",
+          col = "black") +
+  tm_title("Accessibility to eldercare: KD2SFCA method") +
+  tm_layout(frame = TRUE) +
+  tm_compass(type = "8star", size = 2) +
+  tm_scalebar() +
+  tm_grid(alpha = 0.2)
+```
+
+```{r}
+#| echo: false
+pa_of <- h_tab |> select(fid, PLN_AREA_N, REGION_N)
+fmt <- function(x) if (x == 0) "0" else if (x < 1e-3) sci(x) else as.character(signif(x, 3))
+group_near <- function(tab, g) {
+  d <- tab$near[tab$group == g]
+  sprintf("%.2f to %.2f km (median %.2f)", min(d), max(d), median(d))
+}
+group_score <- function(tab, var, g) {
+  s <- tab[[var]][tab$group == g]
+  sprintf("%s to %s (median %s)", fmt(min(s)), fmt(max(s)), fmt(median(s)))
+}
+group_areas <- function(tab, g) {
+  tab |>
+    filter(group == g) |>
+    count(PLN_AREA_N, sort = TRUE) |>
+    slice_head(n = 4) |>
+    pull(PLN_AREA_N)
+}
+title_list <- \(x) paste(str_to_title(x), collapse = ", ")
+n_regions <- \(tab, g) c("one", "two", "three", "four", "five")[n_distinct(tab$REGION_N[tab$group == g])]
+kd_tab <- hexagon_KD2SFCA |>
+  st_drop_geometry() |>
+  mutate(near = apply(distmat_km, 1, min),
+         n1 = rowSums(distmat_km <= 1),
+         group = case_when(accKD2SFCA == 0 ~ "zero",
+                           accKD2SFCA >= quantile(accKD2SFCA, 0.9) ~ "top",
+                           TRUE ~ "middle"),
+         one_dist = fid %in% one_dist) |>
+  left_join(pa_of, by = "fid")
+kd_areas <- \(g) group_areas(kd_tab, g)
+kd_zero <- sum(kd_tab$group == "zero")
+kd_max <- kd_tab |> slice_max(accKD2SFCA, n = 1)
+kd_mid_near <- median(kd_tab$near[kd_tab$group == "middle"])
+```
+
+The classes are deciles, as in section 3.1.2. Of the 3,125
+hexagons, `r format(kd_zero, big.mark = ",")` (`r round(100 * kd_zero / 3125)`%) score exactly 0,
+because no centre is within 5 km of them by road. The 10th to 40th percentiles are therefore all 0,
+and the four lowest classes of the legend run from 0 to 0. The table lists three groups of hexagons:
+
+| Hexagons | KD2SFCA score | Nearest centre by road | Planning areas with the most hexagons |
+|----------------|-------------------------------------|-------------------------------|------------------------------------------|
+| Top 10% | `r group_score(kd_tab, "accKD2SFCA", "top")` | `r group_near(kd_tab, "top")` | `r title_list(kd_areas("top"))` |
+| Other scores above 0 | `r group_score(kd_tab, "accKD2SFCA", "middle")` | `r group_near(kd_tab, "middle")` | spread over all `r n_regions(kd_tab, "middle")` regions |
+| Score 0 | 0 | `r group_near(kd_tab, "zero")` | `r title_list(kd_areas("zero"))` |
+
+Of the `r format(kd_zero, big.mark = ",")` hexagons with a score of
+0, `r sum(kd_tab$group == "zero" & kd_tab$one_dist)` have the same road distance to every centre, an
+error in the distance matrix described in section 4.1.
+
+The kernel $e^{-d^2}$ is below 0.02 beyond 2 km:
+
+- The highest score, `r round(kd_max$accKD2SFCA, 2)`, is at a hexagon
+  in `r str_to_title(kd_max$PLN_AREA_N)`. The hexagon has `r kd_max$n1` centres within 1 km by road.
+- Among the other scores above 0, the median distance to the nearest centre
+  is `r round(kd_mid_near, 2)` km. A centre at that distance has a weight of
+  about `r sci(exp(-round(kd_mid_near, 2)^2))`.
+- A hexagon with no centre within 5 km by road scores 0, however many centres are just beyond 5 km.
+
+The map below shows the three groups of the table, and labels the planning areas that have the most
+hexagons in the top 10% and with a score of 0.
+
+::: {.panel-tabset}
+#### Map
+
+```{r}
+#| label: kd2sfca-named-map
+#| echo: false
+#| fig-height: 6
+label_areas <- function(areas) {
+  mpsz |>
+    filter(PLN_AREA_N %in% areas) |>
+    group_by(PLN_AREA_N) |>
+    summarise() |>
+    st_cast("MULTIPOLYGON") |>
+    st_cast("POLYGON") |>
+    mutate(area = st_area(geometry)) |>
+    group_by(PLN_AREA_N) |>
+    slice_max(area, n = 1) |>
+    ungroup() |>
+    mutate(label = str_to_title(PLN_AREA_N),
+           label = if_else(PLN_AREA_N == "WESTERN ISLANDS",
+                           "Jurong Island\n(Western Islands)", label))
+}
+kd_groups <- hexagon_KD2SFCA |>
+  mutate(group = case_when(accKD2SFCA == 0 ~ "0",
+                           accKD2SFCA >= quantile(accKD2SFCA, 0.9) ~ "top 10%",
+                           TRUE ~ "above 0, below the top 10%"),
+         group = factor(group, c("0", "above 0, below the top 10%", "top 10%")))
+tm_shape(kd_groups, bbox = mapex) +
+  tm_polygons(fill = "group",
+              fill.scale = tm_scale_categorical(values = c("grey92", "#9ecae1", "#08519c")),
+              fill.legend = tm_legend(title = "KD2SFCA score"),
+              col_alpha = 0.3) +
+tm_shape(label_areas(c(kd_areas("top"), kd_areas("zero")))) +
+  tm_borders(col = "black", lwd = 1.2) +
+  tm_text("label", size = 0.75, fontface = "bold", bgcol = "white", bgcol_alpha = 0.75) +
+  tm_title("Planning areas with the most hexagons in the top 10% and at 0") +
+  tm_layout(frame = FALSE, legend.outside = TRUE)
+```
+
+#### Code
+
+```{r}
+#| ref.label: kd2sfca-named-map
+#| eval: false
+```
+:::
+
+### KD2SFCA scores by region
+
+```{r}
+#| fig-height: 4.5
+hexagon_KD2SFCA <- st_join(hexagon_KD2SFCA, mpsz,
+                           join = st_intersects)
+
+ggplot(data = hexagon_KD2SFCA,
+       aes(y = accKD2SFCA,
+           x = REGION_N)) +
+  geom_boxplot(outlier.size = 0.6, linewidth = 0.4) +
+  geom_point(stat = "summary",
+             fun = "mean",
+             colour = "red",
+             size = 2) +
+  scale_x_discrete(labels = \(x) str_to_title(str_remove(x, " REGION"))) +
+  labs(x = NULL, y = "KD2SFCA score") +
+  coord_cartesian(ylim = c(-0.05, 1.6)) +
+  theme_minimal(base_size = 12)
+```
+
+```{r}
+#| echo: false
+kd_reg <- hexagon_KD2SFCA |>
+  st_drop_geometry() |>
+  group_by(REGION_N) |>
+  summarise(zero = mean(accKD2SFCA == 0),
+            low = mean(accKD2SFCA < 0.1),
+            med = median(accKD2SFCA),
+            mean = mean(accKD2SFCA),
+            max = max(accKD2SFCA))
+kr <- \(r, v) kd_reg[[v]][kd_reg$REGION_N == r]
+```
+
+**Reading the chart.**
+
+- The vertical axis is the score on the original scale. The logarithm of a score of 0 is not
+  defined, so a logarithmic axis would leave out the hexagons that score 0.
+- The boxes of the East, North and West regions are flat near zero, and the boxes of the Central and
+  North-East regions are short. The points above the boxes are the hexagons with the highest scores.
+- The red point is the mean. In every region, the mean is above the median. The scores of each
+  region have a long upper tail, which raises the mean more than the median.
+
+**Regions.**
+
+```{r}
+#| echo: false
+kd_reg |>
+  transmute(Region = str_to_title(REGION_N),
+            `Score 0 (%)` = round(100 * zero),
+            `Below 0.1 (%)` = round(100 * low),
+            `Median score` = map_chr(med, fmt),
+            `Mean score` = map_chr(mean, fmt),
+            `Highest score` = round(max, 2)) |>
+  kable()
+```
+
+- In every region, between `r round(100 * min(kd_reg$low))`% and `r round(100 * max(kd_reg$low))`%
+  of the hexagons score below 0.1.
+- The Central Region has the highest median, `r signif(kr("CENTRAL REGION", "med"), 2)`. Of its
+  hexagons, `r round(100 * kr("CENTRAL REGION", "zero"))`% score 0.
+- The West Region has a median of 0: `r round(100 * kr("WEST REGION", "zero"))`% of its hexagons
+  score 0, mainly in the Western Water Catchment, Tuas and Jurong Island.
+- In the North Region, `r round(100 * kr("NORTH REGION", "zero"))`% of the hexagons score 0, mainly
+  in the Central Water Catchment and Lim Chu Kang.
+- The highest score of each region is between `r round(min(kd_reg$max), 2)`
+  and `r round(max(kd_reg$max), 2)`.
+
+## Spatial accessibility measure (SAM)
+
+::: {.callout-tip collapse="false"}
+## SAM in Kalogirou and Foley (2006)
+
+Kalogirou and Foley (2006) developed SAM to compare the accessibility of electoral divisions in
+Ireland to acute hospitals, for the existing hospitals and for the reforms proposed in the Hanly
+Report. The table lists their inputs and the inputs in this exercise:
+
+| Input | Kalogirou and Foley (2006) | This exercise |
+|------------|------------------------------------------|------------------------------------------|
+| supply | the number of beds of each hospital | the capacity of each centre, 100 |
+| demand | the population of each electoral division, and the population aged 65 and over | the demand of each hexagon, 100 |
+| separation | travel time by road | road distance in kilometres |
+
+Section 4.5 replaces the demand of 100 with the residents aged 65 and over.
+
+
+Kalogirou and Foley (2006) describe SAM as "a population-weighted accessibility score". According to
+them, accessibility "increased the greater the local population and the number and/or size of
+facilities in the system" and "decreased the greater the distances from the place in question to
+those facilities".
+
+Each measure of Part 1 uses the demand in a different way:
+
+| Measure | Demand used as a divisor | Demand of other hexagons near the centre |
+|----------|----------------------------------------------|----------------------------------------------|
+| Hansen | none | not used |
+| 2SFCA | the demand of all hexagons within $d_0$ of a centre, which divides the capacity of the centre | more demand near the centre lowers the ratio $R_j$ of the centre |
+| SAM | the demand of the hexagon itself, which divides the score of the hexagon | not used |
+
+In the example below, two invented hexagons with 100 and 200 people are 1 km from the same centre,
+which has a capacity of 100.
+
+```{r}
+#| echo: false
+#| fig-height: 2.3
+sd_hexagon <- function(cx, r = 0.35) {
+  tibble(a = seq(0, 300, by = 60) * pi / 180) |>
+    mutate(x = cx + r * cos(a), y = r * sin(a))
+}
+sam_dm <- tibble(x = c(-1.6, 1.6), people = c(100, 200), fill = c("#d9f0d3", "#41ab5d"))
+ggplot() +
+  geom_segment(data = sam_dm, aes(x = x, y = 0, xend = 0, yend = 0), colour = "#3182bd",
+               linewidth = 1.5, alpha = 0.7) +
+  annotate("text", x = c(-0.8, 0.8), y = 0.13, label = "1 km", size = 3.3, colour = "grey30") +
+  geom_polygon(data = sd_hexagon(sam_dm$x[1]), aes(x, y), fill = sam_dm$fill[1], colour = "grey30") +
+  geom_polygon(data = sd_hexagon(sam_dm$x[2]), aes(x, y), fill = sam_dm$fill[2], colour = "grey30") +
+  geom_text(data = sam_dm, aes(x, -0.55, label = paste(people, "people")), size = 3.3) +
+  annotate("point", x = 0, y = 0, shape = 21, size = 9, fill = "#3182bd", colour = "grey30") +
+  annotate("text", x = 0, y = -0.03, label = "A", colour = "white", fontface = "bold",
+           size = 3.5) +
+  annotate("text", x = 0, y = -0.35, label = "capacity 100", colour = "grey20", size = 3.4) +
+  coord_equal(xlim = c(-2.6, 2.6), ylim = c(-0.8, 0.4)) +
+  theme_void()
+```
+
+```{r}
+#| echo: false
+sd_p <- c(100, 200)
+sd_D <- matrix(c(1, 1), ncol = 1)
+tibble(Hexagon = paste(sd_p, "people"),
+       `Hansen, power = 2` = ac(sd_p, 100, sd_D, power = 2, family = "Hansen"),
+       `2SFCA, d0 = 5` = ac(sd_p, 100, sd_D, d0 = 5, family = "2SFCA"),
+       `SAM, power = 2` = ac(sd_p, 100, sd_D, power = 2, family = "SAM")) |>
+  kable(digits = 3)
+```
+
+Under Hansen and under 2SFCA, the hexagons with 100 and 200 people have the same score. Under 2SFCA,
+the 300 people share the capacity of the centre, so each hexagon receives the same ratio. Under SAM,
+the hexagon with 200 people has half the score of the hexagon with 100 people.
+:::
+
+### SAM scores from `ac()`
+
+The code in this section computes one SAM score for each of the 3,125 hexagons, and adds the scores
+to the hexagons as `hexagon_SAM`. The map of section 3.3.2 and the boxplots of section 3.3.3 are
+drawn from `hexagon_SAM`.
+
+```{r}
+acc_SAM <- data.frame(ac(hexagons$demand,
+                         eldercare$capacity,
+                         distmat_km,
+                         d0 = 5,
+                         power = 2,
+                         family = "SAM"))
+
+colnames(acc_SAM) <- "accSAM"
+acc_SAM <- as_tibble(acc_SAM)
+hexagon_SAM <- bind_cols(hexagons, acc_SAM)
+```
+
+```{r}
+#| echo: false
+stopifnot(identical(ac(hexagons$demand, eldercare$capacity, distmat_km, d0 = 50, power = 2,
+                       family = "SAM"), acc_SAM$accSAM))
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- The call is the KD2SFCA call with `family = "SAM"`. In the chapter, this chunk is also described
+  as calculating "Hansen's accessibility".
+- `d0 = 5` has no effect on the SAM scores. The SAM formula of Kalogirou and Foley (2006) on slide
+  29 has no catchment. In the source of `ac()` (section 4.2), `d0` is used only for 2SFCA and
+  KD2SFCA. The argument is carried over from the KD2SFCA call: with `d0 = 50` in place of `d0 = 5`,
+  every SAM score was the same.
+:::
+
+::: {.callout-tip collapse="false"}
+## The SAM formula in `ac()`
+
+Slide 29 shows the formula of Kalogirou and Foley (2006). According to the source of `ac()` (section
+4.2), the function computes SAM as
+
+$$A_i = \sum_j \frac{n_j}{p_i \, d_{ij}^{\,\beta}} = \frac{1}{\text{demand of hexagon } i} \sum_j \frac{\text{capacity of centre } j}{(\text{road distance from hexagon } i \text{ to centre } j)^{\beta}}$$
+
+where $\beta$ is `power`. The weight of a centre is the power function $1/d^{\beta}$ of slide 8.
+Stewart's model on slide 19 and Hansen (1959) use the same function. The figure below shows the
+weight with `power = 2`, at invented distances along one road from a hexagon.
+
+```{r}
+#| echo: false
+#| fig-height: 3.3
+sam_w <- tibble(d = c(0.5, 1, 2, 4, median(distmat_km)),
+                pos = c(0.5, 1, 2, 4, 5.2)) |>
+  mutate(w = 1 / d^2,
+         d_lab = if_else(d < 1, sprintf("%.0f m", d * 1000), sprintf("%.1f km", d)),
+         w_lab = as.character(signif(w, 3)))
+ggplot(sam_w) +
+  annotate("rect", xmin = -0.35, xmax = 5.75, ymin = -0.45, ymax = 1.8, fill = "white",
+           colour = "grey65") +
+  annotate("text", x = -0.22, y = 1.7, hjust = 0, vjust = 1, fontface = "bold", size = 4.3,
+           label = "Weight of a centre in ac(family = \"SAM\"), power = 2: 1/d\u00b2") +
+  annotate("segment", x = 0, xend = 4.5, y = 0, yend = 0, colour = "grey60", linewidth = 1) +
+  annotate("segment", x = 4.9, xend = 5.5, y = 0, yend = 0, colour = "grey60", linewidth = 1) +
+  annotate("text", x = 4.7, y = 0, label = "//", size = 5, colour = "grey40") +
+  geom_rect(aes(xmin = pos - 0.08, xmax = pos + 0.08, ymin = 0.12, ymax = 0.12 + w / 4),
+            fill = "#3182bd") +
+  geom_text(aes(pos, 0.12 + w / 4, label = w_lab), vjust = -0.5, size = 3.5) +
+  geom_point(aes(pos, 0), shape = 21, size = 5, fill = "#3182bd", colour = "grey30") +
+  geom_polygon(data = tibble(a = seq(0, 300, by = 60) * pi / 180,
+                             x = 0.1 * cos(a), y = 0.1 * sin(a)),
+               aes(x, y), fill = "#a1d99b", colour = "grey30") +
+  geom_text(aes(pos, -0.17, label = d_lab), size = 3.4, colour = "grey30") +
+  annotate("text", x = 0, y = -0.31, label = "hexagon", size = 3.3) +
+  annotate("text", x = 5.2, y = -0.31, label = "median distance", size = 3.3,
+           colour = "grey30") +
+  coord_fixed(xlim = c(-0.35, 5.75), ylim = c(-0.45, 1.8)) +
+  theme_void()
+```
+
+The weight is divided by 4 each time the distance doubles. At the median distance
+of `r round(median(distmat_km), 1)` km it is `r signif(1 / median(distmat_km)^2, 2)`,
+about `r sci(exp(2 * median(distmat_km)) / median(distmat_km)^2)` times the weight of about
+$10^{-15}$ in the Hansen formula of `ac()` (section 3.1.1).
+
+The weight $1/d^{\beta}$ is 1 at 1 km for every $\beta$. A larger $\beta$ gives a larger weight
+below 1 km and a smaller weight above it (chart below, as on slide 8). The vertical axis is cut at
+4, although the weight grows without limit as the distance approaches zero.
+
+```{r}
+#| echo: false
+#| fig-height: 4
+expand_grid(beta = c(1, 1.5, 2, 2.5), d = seq(0.3, 5, by = 0.02)) |>
+  mutate(w = 1 / d^beta, curve = if_else(beta == 2, "β = 2 (chapter's code)", paste0("β = ", beta)),
+         main = beta == 2, step = FALSE) |>
+  decay_chart() |>
+  plotly::layout(yaxis = list(range = c(0, 4)))
+```
+
+The table below gives the SAM and 2SFCA scores of the example of section 3.2.1, with `power = 2`:
+
+```{r}
+#| echo: false
+toy_sum <- as.vector((1 / toy_D^2) %*% toy_n)
+tibble(` ` = rownames(toy_D),
+       `km to A` = toy_D[, 1], `km to B` = toy_D[, 2],
+       demand = toy_p,
+       `Σ n_j / d²` = toy_sum,
+       `SAM by hand` = toy_sum / toy_p,
+       `ac(family = "SAM")` = ac(toy_p, toy_n, toy_D, d0 = 5, power = 2, family = "SAM"),
+       `2SFCA` = toy_A) |>
+  kable(digits = 4)
+```
+
+The scores from `ac()` are the same as the hand calculation. Hexagon 4, 1 km from the larger centre
+B, has the highest SAM score. Hexagon 2 has the lowest SAM score, because its demand of 200 is twice
+the demand of the other hexagons. In 2SFCA, hexagons 2 and 3 have the same score, the highest of the
+four hexagons, because each is within 5 km of centres A and B.
+:::
+
+```{r}
+#| echo: false
+sam_near <- min(distmat_km)
+```
+
+::: {.callout-tip collapse="false"}
+## Limits of SAM in `ac()`
+
+**No upper limit near a centre.** The power function grows without limit as the distance approaches
+zero. The shortest distance in the matrix is `r round(sam_near * 1000)` m. At that distance, the
+weight is `r round(1 / sam_near^2)`, the weight of `r round(1 / sam_near^2)` centres at 1 km.
+
+**No catchment.** The SAM formula has no catchment, so the score of every hexagon includes every
+centre, at any distance.
+
+**Demand used once.** In `ac()`, the demand enters the score once (section 4.2), whereas the formula
+on slide 29 uses it twice.
+
+**Division by zero.** A hexagon with a demand of 0 has an infinite score (section 4.5).
+:::
+
+### Decile map of the SAM scores
+
+```{r}
+#| fig-height: 7
+tm_shape(hexagon_SAM,
+         bbox = mapex) +
+  tm_polygons(fill = "accSAM",
+              fill.scale = tm_scale_intervals(
+                style = "quantile",
+                n = 10,
+                values = "brewer.blues"),
+              fill.legend = tm_legend(title = "SAM score"),
+              col_alpha = 0.3) +
+tm_shape(eldercare) +
+  tm_dots(size = 0.3,
+          fill = "red",
+          col = "black") +
+  tm_title("Accessibility to eldercare: SAM method") +
+  tm_layout(frame = TRUE) +
+  tm_compass(type = "8star", size = 2) +
+  tm_scalebar() +
+  tm_grid(alpha = 0.2)
+```
+
+```{r}
+#| echo: false
+sam_tab <- hexagon_SAM |>
+  st_drop_geometry() |>
+  mutate(near = apply(distmat_km, 1, min),
+         group = case_when(accSAM >= quantile(accSAM, 0.9) ~ "top",
+                           accSAM <= quantile(accSAM, 0.1) ~ "bottom",
+                           TRUE ~ "middle"),
+         one_dist = fid %in% one_dist) |>
+  left_join(pa_of, by = "fid")
+sam_areas <- \(g) group_areas(sam_tab, g)
+sam_sorted <- sort(sam_tab$accSAM, decreasing = TRUE)
+sam_top2 <- sam_tab |> slice_max(accSAM, n = 2)
+sam_one_top <- sam_tab |> filter(group == "top", one_dist)
+```
+
+The classes are deciles, as in section 3.1.2:
+
+| Hexagons | SAM score | Nearest centre by road | Planning areas with the most hexagons |
+|------------|-------------------------------------|-------------------------------|----------------------------------------------|
+| Top 10% | `r group_score(sam_tab, "accSAM", "top")` | `r group_near(sam_tab, "top")` | `r title_list(sam_areas("top"))` |
+| Middle 80% | `r group_score(sam_tab, "accSAM", "middle")` | `r group_near(sam_tab, "middle")` | spread over all `r n_regions(sam_tab, "middle")` regions |
+| Bottom 10% | `r group_score(sam_tab, "accSAM", "bottom")` | `r group_near(sam_tab, "bottom")` | `r title_list(sam_areas("bottom"))` |
+
+- The highest score, `r round(sam_top2$accSAM[1])`, is at a hexagon
+  in `r str_to_title(sam_top2$PLN_AREA_N[1])`, `r round(sam_top2$near[1] * 1000)` m from a centre by
+  road. The second highest score, `r round(sam_top2$accSAM[2])`, is
+  in `r str_to_title(sam_top2$PLN_AREA_N[2])`, `r round(sam_top2$near[2] * 1000)` m from a centre.
+- The `r round(0.01 * 3125)` highest-scoring hexagons, 1% of the total, account
+  for `r round(100 * sum(sam_sorted[1:31]) / sum(sam_sorted))`% of the sum of all scores.
+- In Ireland, Kalogirou and Foley (2006) report SAM scores from 0.02 to 40,607. They describe the
+  scores as "artefacts of the formula".
+- The highest score is
+  about `r format(signif(max(sam_tab$accSAM) / min(sam_tab$accSAM), 2), big.mark = ",")` times the
+  lowest score. For the Hansen scores of section 3.1.2, the ratio is more than
+  $10^{`r floor(log10(max(h_tab$accHansen) / min(h_tab$accHansen)))`}$, because $e^{-2d}$ falls
+  faster with distance than $1/d^2$. At `r round(median(distmat_km), 1)` km, the two weights are
+  about $10^{-15}$ and `r signif(1 / median(distmat_km)^2, 2)`.
+- With the same demand in every hexagon, the hexagons have the same order of scores under SAM as
+  under a Hansen measure with $1/d^2$ (section 4.3).
+- Hexagon `r sam_one_top$fid` is in the top 10%, with the same road distance
+  of `r round(sam_one_top$near, 2)` km to every centre, an error in the distance matrix described in
+  section 4.1.
+
+The map below labels the planning areas that have the most hexagons in the top and bottom deciles.
+
+::: {.panel-tabset}
+#### Map
+
+```{r}
+#| label: sam-named-map
+#| echo: false
+#| fig-height: 6
+tm_shape(hexagon_SAM, bbox = mapex) +
+  tm_polygons(fill = "accSAM",
+              fill.scale = tm_scale_intervals(style = "quantile", n = 10,
+                                              values = "brewer.blues",
+                                              labels = c("1 (lowest)", 2:9, "10 (highest)")),
+              fill.legend = tm_legend(title = "Decile of the\nSAM score"),
+              col_alpha = 0.3) +
+tm_shape(label_areas(c(sam_areas("top"), sam_areas("bottom")))) +
+  tm_borders(col = "black", lwd = 1.2) +
+  tm_text("label", size = 0.75, fontface = "bold", bgcol = "white", bgcol_alpha = 0.75) +
+  tm_title("Planning areas with the most hexagons in the top and bottom deciles") +
+  tm_layout(frame = FALSE, legend.outside = TRUE)
+```
+
+#### Code
+
+```{r}
+#| ref.label: sam-named-map
+#| eval: false
+```
+:::
+
+### SAM scores by region
+
+```{r}
+#| fig-height: 4.5
+hexagon_SAM <- st_join(hexagon_SAM, mpsz,
+                       join = st_intersects)
+
+ggplot(data = hexagon_SAM,
+       aes(y = accSAM,
+           x = REGION_N)) +
+  geom_boxplot(outlier.size = 0.6, linewidth = 0.4) +
+  geom_point(stat = "summary",
+             fun = "mean",
+             colour = "red",
+             size = 2) +
+  scale_x_discrete(labels = \(x) str_to_title(str_remove(x, " REGION"))) +
+  labs(x = NULL, y = "SAM score") +
+  theme_minimal(base_size = 12)
+```
+
+```{r}
+#| echo: false
+sam_reg <- hexagon_SAM |>
+  st_drop_geometry() |>
+  group_by(REGION_N) |>
+  summarise(med = median(accSAM),
+            mean = mean(accSAM),
+            max = max(accSAM),
+            above10 = n_distinct(fid[accSAM > 10]))
+sr <- \(r, v) sam_reg[[v]][sam_reg$REGION_N == r]
+```
+
+**Reading the chart.**
+
+- The vertical axis is the score on the original scale, as in the chapter. The Hansen chart of
+  section 3.1.3 uses a logarithmic axis.
+- The axis extends to the highest score, `r round(max(sam_reg$max))`, so the boxes of all five
+  regions are flat near zero. The points above the boxes are the hexagons with the highest scores.
+- The red point is the mean.
+
+**Regions.**
+
+```{r}
+#| echo: false
+sam_reg |>
+  transmute(Region = str_to_title(REGION_N),
+            `Median score` = map_chr(med, fmt),
+            `Mean score` = map_chr(mean, fmt),
+            `Highest score` = round(max, 1),
+            `Hexagons above 10` = above10) |>
+  kable()
+```
+
+- In every region, the mean is above the median.
+- The Central Region has the highest median, `r signif(sr("CENTRAL REGION", "med"), 2)`. It
+  has `r sr("CENTRAL REGION", "above10")` of the `r sum(sam_tab$accSAM > 10)` hexagons with a score
+  above 10.
+- The West Region has the lowest median, `r signif(sr("WEST REGION", "med"), 2)`. The medians of the
+  Central and West regions differ by a factor of
+  about `r round(sr("CENTRAL REGION", "med") / sr("WEST REGION", "med"))`, far less than the factor
+  of about `r format(signif(exp(diff(range(h_reg$med))), 2), big.mark = ",")` for the Hansen scores.
+
+## Summary of Part 1
+
+In every panel, hexagon $i$ has 100 people and hexagon $k$ has 300, and centres A and B each have a
+capacity of 100. The roads are 1, 2, 4 and 8 km long, and their lengths in the drawing are
+schematic. Hexagons, centres and roads that a measure does not use are faded.
+
+```{r}
+#| echo: false
+#| fig-width: 8
+#| fig-height: 16.6
+sm_y <- 0.4 + 4.9 * (4:0)                                 # road line of each panel
+sm_x <- c(k = 0.8, A = 2.4, i = 4.0, B = 5.6)
+sm_on <- list(                                              # what each measure uses
+  nodes = list(c("i", "A"), c("i", "A", "B"), c("i", "k", "A", "B"),
+               c("i", "k", "A", "B"), c("i", "A", "B")),
+  value = list(character(0), c("A", "B"), c("i", "k", "A", "B"),
+               c("i", "k", "A", "B"), c("i", "A", "B")),
+  roads = list("i-A", c("i-A", "i-B"), c("k-A", "i-A", "i-B"),
+               c("k-A", "i-A", "i-B"), c("i-A", "i-B")))
+sm_road_lab <- list(                                        # above each road
+  c(`k-A` = "2 km", `i-A` = "1 km", `i-B` = "4 km", `k-B` = "8 km"),
+  c(`k-A` = "2 km", `i-A` = "1 km", `i-B` = "4 km", `k-B` = "8 km"),
+  c(`k-A` = "2 km", `i-A` = "1 km", `i-B` = "4 km", `k-B` = "8 km: beyond 5 km, not used"),
+  c(`k-A` = "2 km", `i-A` = "1 km", `i-B` = "4 km", `k-B` = "8 km: beyond 5 km, weight 0"),
+  c(`k-A` = "2 km", `i-A` = "1 km", `i-B` = "4 km", `k-B` = "8 km"))
+sm_road_calc <- list(                                       # under each road
+  c(`i-A` = "nearest"),
+  c(`i-A` = "100 / 1\u00b2 = 100", `i-B` = "100 / 4\u00b2 = 6.25"),
+  c(`k-A` = "within 5 km", `i-A` = "within 5 km", `i-B` = "within 5 km"),
+  c(`k-A` = "weight 0.84", `i-A` = "weight 0.96", `i-B` = "weight 0.36"),
+  c(`i-A` = "100 / 1\u00b2 = 100", `i-B` = "100 / 4\u00b2 = 6.25"))
+sm_note <- tribble(
+  ~id, ~x, ~label,
+  1, sm_x[["A"]], "the score is the distance\nto centre A, 1 km",
+  2, sm_x[["i"]], "people competing for A and B are\nnot counted: with 1,000,000 people\nin i or k, i still scores 106.25",
+  3, sm_x[["A"]], "ratio of A\n= 100 / (100 + 300) = 0.25\n(k and i share A)",
+  3, sm_x[["B"]], "ratio of B\n= 100 / 100 = 1\n(only i within 5 km)",
+  4, sm_x[["A"]], "ratio of A\n= 100 / (0.96 × 100 + 0.84 × 300)\n= 0.29",
+  4, sm_x[["B"]], "ratio of B\n= 100 / (0.36 × 100)\n= 2.78",
+  5, sm_x[["i"]], "106.25 / 100 people of i = 1.06;\nwith 1,000,000 people in k,\ni still scores 1.06")
+sm_text <- tibble(
+  id = 1:5, y0 = sm_y,
+  title = c("1. Distance to the nearest centre", "2. Hansen (1959)",
+            "3. 2SFCA (Luo and Wang, 2003)", "4. KD2SFCA (Dai and Wang, 2011)",
+            "Side branch: SAM\n(Kalogirou and Foley, 2006)"),
+  formula = c("A[i] == min(d[ij], j)",
+              "A[i] == sum(frac(n[j], d[ij]^2), j)",
+              "list(R[j] == frac(n[j], sum(p[k], 'k within 5 km')), ~~A[i] == sum(R[j], 'j within 5 km'))",
+              "list(R[j] == frac(n[j], sum(p[k]*w[kj], k)), ~~A[i] == sum(R[j]*w[ij], j))",
+              "A[i] == frac(1, p[i])*sum(frac(n[j], d[ij]^2), j)"),
+  score = c('A[i] == 1 ~ km',
+            'A[i] == 100 + 6.25 ~ "=" ~ 106.25',
+            'A[i] == 0.25 + 1 ~ "=" ~ 1.25',
+            'A[i] == 0.29 %*% 0.96 + 2.78 %*% 0.36 ~ "=" ~ 1.28',
+            'A[i] == 106.25 / 100 ~ "=" ~ 1.06'),
+  adds = c("distance to the nearest\ncentre",
+           "distance, capacity of\nevery centre (new)",
+           "distance, capacity, demand\nwithin 5 km (new)",
+           "distance, capacity, demand,\ndistance weight (new)",
+           "distance, capacity, the people\nof the hexagon itself (new)"),
+  misses = c("other centres, capacity,\ndemand (people)",
+             "demand (the people\ncompeting for a centre)",
+             "distance inside the 5 km\ncatchment",
+             "a parameter for how fast\nthe weight falls in ac()",
+             "a catchment; the demand\nof other hexagons"))
+sm_nodes <- map_dfr(1:5, \(p) tibble(
+  id = p, y0 = sm_y[p], node = names(sm_x), x = unname(sm_x),
+  type = c("hexagon", "centre", "hexagon", "centre"),
+  name = c("hexagon k", "centre A", "hexagon i", "centre B"),
+  value = c("300 people", "capacity 100", "100 people", "capacity 100"),
+  on = node %in% sm_on$nodes[[p]], value_on = node %in% sm_on$value[[p]])) |>
+  mutate(sam_i = id == 5 & node == "i",
+         value = if_else(sam_i, "\u00f7 100 people", value))
+sm_roads <- map_dfr(1:5, \(p) tibble(
+  id = p, y0 = sm_y[p], road = c("k-A", "i-A", "i-B"),
+  x1 = sm_x[c("k", "A", "i")], x2 = sm_x[c("A", "i", "B")],
+  label = sm_road_lab[[p]][road], calc = unname(sm_road_calc[[p]][road]),
+  on = road %in% sm_on$roads[[p]]))
+sm_arc <- map_dfr(1:5, \(p) tibble(id = p, t = seq(0, pi, length.out = 60)) |>
+  mutate(x = (sm_x[["k"]] + sm_x[["B"]]) / 2 - (sm_x[["B"]] - sm_x[["k"]]) / 2 * cos(t),
+         y = sm_y[p] + 1.45 * sin(t)))
+sm_arc_lab <- tibble(id = 1:5, y0 = sm_y, label = map_chr(sm_road_lab, "k-B"))
+sm_hex <- sm_nodes |> filter(type == "hexagon") |> rowwise() |>
+  reframe(id, node, on, tibble(a = seq(30, 330, by = 60) * pi / 180) |>
+            mutate(px = x + 0.36 * cos(a), py = y0 + 0.36 * sin(a)))
+sm_fig <- ggplot() +
+  geom_rect(data = sm_text, aes(xmin = 0, xmax = 11.6, ymin = y0 - 2.55, ymax = y0 + 1.75),
+            fill = "white", colour = "grey60") +
+  geom_path(data = sm_arc, aes(x, y, group = id), colour = "grey30", linewidth = 0.9,
+            linetype = "dashed", alpha = 0.2) +
+  geom_label(data = sm_arc_lab, aes((sm_x[["k"]] + sm_x[["B"]]) / 2, y0 + 1.45, label = label),
+             size = 3.9, linewidth = 0, fill = "white", colour = "grey55") +
+  geom_segment(data = sm_roads, aes(x1, y0, xend = x2, yend = y0, alpha = on),
+               colour = "grey20", linewidth = 1.2) +
+  geom_text(data = sm_roads, aes((x1 + x2) / 2, y0 + 0.14, label = label, alpha = on),
+            vjust = 0, size = 3.9) +
+  geom_text(data = filter(sm_roads, !is.na(calc)), aes((x1 + x2) / 2, y0 + 0.5, label = calc),
+            vjust = 0, size = 3.8, colour = "#08519c", fontface = "bold") +
+  geom_polygon(data = sm_hex, aes(px, py, group = interaction(id, node), alpha = on),
+               fill = "#a1d99b", colour = "grey30") +
+  geom_point(data = filter(sm_nodes, type == "centre"), aes(x, y0, alpha = on),
+             shape = 21, size = 11, fill = "#3182bd", colour = "grey30") +
+  geom_text(data = sm_nodes, aes(x, y0, label = node, alpha = on), fontface = "bold.italic",
+            size = 5.2, colour = if_else(sm_nodes$type == "centre", "white", "black")) +
+  geom_text(data = sm_nodes, aes(x, y0 - 0.5, label = name, alpha = on), size = 3.9,
+            vjust = 1) +
+  geom_text(data = sm_nodes, aes(x, y0 - 0.88, label = value, alpha = value_on), size = 3.9,
+            vjust = 1, fontface = if_else(sm_nodes$sam_i, "bold.italic", "italic"),
+            colour = if_else(sm_nodes$sam_i, "#08519c", "black")) +
+  geom_label(data = left_join(sm_note, tibble(id = 1:5, y0 = sm_y), by = "id"),
+             aes(x, y0 - 1.35, label = label), vjust = 1, size = 3.9, lineheight = 0.9,
+             linewidth = 0.3, fill = "#fff7dc", colour = "grey15") +
+  geom_text(data = sm_text, aes(7.0, y0 + 1.35, label = title), hjust = 0, vjust = 1,
+            fontface = "bold", size = 4.7, lineheight = 0.95) +
+  geom_text(data = sm_text, aes(7.0, y0 + 0.05 - (id == 5) * 0.3, label = formula),
+            parse = TRUE, hjust = 0, size = 4.7) +
+  geom_text(data = sm_text, aes(7.0, y0 - 0.85 - (id == 5) * 0.15, label = score),
+            parse = TRUE, hjust = 0, size = 4.5) +
+  geom_text(data = filter(sm_text, !is.na(adds)),
+            aes(7.0, y0 - 1.35, label = paste("Uses:", adds)), hjust = 0, vjust = 1,
+            size = 4.3, colour = "darkgreen", lineheight = 0.95) +
+  geom_text(data = sm_text, aes(7.0, y0 - 1.95 + is.na(adds) * 0.6,
+                                label = paste("Missing:", misses)),
+            hjust = 0, vjust = 1, size = 4.3, colour = "firebrick", lineheight = 0.95) +
+  annotate("segment", x = 3.1, xend = 3.1, y = sm_y[1:3] - 2.6, yend = sm_y[2:4] + 1.8,
+           arrow = arrow(length = unit(0.3, "cm")), linewidth = 1.2) +
+  scale_alpha_manual(values = c(`TRUE` = 1, `FALSE` = 0.18), guide = "none") +
+  coord_equal(xlim = c(0, 11.6), ylim = c(sm_y[5] - 2.6, sm_y[1] + 1.8), expand = FALSE) +
+  theme_void()
+sm_fig
+```
+
+When the number of people in hexagon $i$ increases, the Hansen score of $i$ stays at 106.25. The SAM
+and 2SFCA scores of $i$ fall (left). When the number of people in hexagon $k$ increases, the Hansen
+and SAM scores of $i$ stay the same. The 2SFCA score of $i$ falls towards 1, the ratio of centre B,
+because centre B is 8 km from $k$ and only the 100 people of $i$ are within its 5 km catchment
+(right). The dots mark the example in the five-panel figure above, with 100 people in $i$ and 300
+people in $k$.
+
+```{r}
+#| echo: false
+#| fig-height: 4
+sm_pop <- 10^seq(0, 6, by = 0.05)
+sm_vary <- bind_rows(
+  tibble(panel = "i", p = c(sm_pop, 100), Hansen = 106.25,
+         `2SFCA` = 100 / (p + 300) + 100 / p, SAM = 106.25 / p),
+  tibble(panel = "k", p = c(sm_pop, 300), Hansen = 106.25,
+         `2SFCA` = 100 / (100 + p) + 1, SAM = 106.25 / 100)) |>
+  pivot_longer(c(Hansen, `2SFCA`, SAM), names_to = "measure", values_to = "score") |>
+  mutate(example = (panel == "i" & p == 100) | (panel == "k" & p == 300))
+sm_cols <- c(Hansen = "#737373", `2SFCA` = "#3182bd", SAM = "#e6550d")
+sm_panel_plot <- function(pan, x_title, show) {
+  d <- filter(sm_vary, panel == pan)
+  fig <- plotly::plot_ly()
+  for (m in names(sm_cols)) {
+    fig <- fig |>
+      plotly::add_lines(data = filter(d, measure == m, !example), x = ~p, y = ~score, name = m,
+                        legendgroup = m, showlegend = show,
+                        line = list(color = sm_cols[[m]], width = 3),
+                        hovertemplate = paste0(m, "<br>people = %{x:,.0f}<br>score of i = %{y:.4g}",
+                                               "<extra></extra>")) |>
+      plotly::add_markers(data = filter(d, measure == m, example), x = ~p, y = ~score,
+                          legendgroup = m, showlegend = FALSE,
+                          marker = list(color = sm_cols[[m]], size = 10),
+                          hovertemplate = paste0(m, " in the figure's example<br>score of i = ",
+                                                 "%{y:.4g}<extra></extra>"))
+  }
+  plotly::layout(fig, xaxis = list(type = "log", title = x_title, tickvals = 10^(0:6),
+                              ticktext = c("1", "10", "100", "1,000", "10,000", "100,000", "1,000,000")),
+                 yaxis = list(type = "log", title = "score of hexagon i", tickvals = 10^(-4:2),
+                              ticktext = c("0.0001", "0.001", "0.01", "0.1", "1", "10", "100")))
+}
+plotly::subplot(sm_panel_plot("i", "people in hexagon i (k has 300)", TRUE),
+                sm_panel_plot("k", "people in hexagon k (i has 100)", FALSE),
+                nrows = 1, shareY = TRUE, titleX = TRUE, margin = 0.03) |>
+  plotly::layout(legend = list(orientation = "h", x = 0, y = 1.12))
+```
+
+| Measure | Unit of the score | The input it adds |
+|-------------------------|--------------------|---------------------------------------------------------------------------|
+| 1. Nearest centre | kilometres | nothing: only the closest centre counts |
+| 2. Hansen | none | the capacity of every centre |
+| 3. 2SFCA | capacity per person | the people within 5 km of a centre, who share its capacity |
+| 4. KD2SFCA | capacity per person | a weight that falls with distance inside the 5 km catchment |
+| SAM (side branch) | none | the people of the hexagon itself, as the divisor of its score |
+
+The 300 people of hexagon $k$ lower the capacity per person of centre A in panels 3 and 4. The
+weights in panel 4 are $1 - (d/5)^2$, the kernel of Dai and Wang (2011) without its factor 3/4. The
+factor cancels between step 1 and step 2. The weight in `ac()` is $e^{-d^2}$, which has no parameter
+that sets how fast the weight falls (section 3.2). Panels 2 and 5 use the power function $1/d^2$ of
+Hansen (1959). With `ac(family = "Hansen")`, which uses $e^{-2d}$ (section 3.1.1), hexagon $i$
+scores $100 e^{-2} + 100 e^{-8} =$ `r round(100 * exp(-2) + 100 * exp(-8), 2)`, against 106.25 in
+panel 2.
+
+# Part 2: Review and extension
+
+In sections 4.1 to 4.3, the distance matrix and the formulas behind the Hansen, KD2SFCA and SAM maps
+of Part 1 are checked. In sections 4.4 to 4.6, methods and demand data that the chapter does not use
+are added.
+
+| Section | Task | Source |
+|-------|-------------------------------------------------------|----------------------------------------|
+| | **Checks of the chapter's inputs and formulas** | |
+| 4.1 | Compare the network distances with straight-line distances, and find the hexagons whose distances are wrong | slide 6; Long (2017), section 2; Kalogirou and Foley (2006) |
+| 4.2 | Write out what `ac()` computes for each family, and compare the formulas with those of the slides and the readings | slides 8, 19, 25 to 29; Hansen (1959); Luo and Wang (2003); Polzin et al. (2014); Cheng et al. (2016); Kalogirou and Foley (2006) |
+| 4.3 | Compare `power = 2` and `power = 0.5` in the chapter's Hansen code with Hansen's own power function, and test the capacity argument `n` of `ac()` | slide 19; Hansen (1959); Luo and Wang (2003) |
+| | **Methods and data beyond the chapter** | |
+| 4.4 | Compute 2SFCA and E2SFCA, compare three kernels for KD2SFCA, and test the size of the catchment | slides 24 to 28; Luo and Wang (2003); Luo and Qi (2009); Polzin et al. (2014); Cheng et al. (2016); OpenStreetMap |
+| 4.5 | Replace the constant demand with the residents aged 65 and over from the 2020 census | Kalogirou and Foley (2006); Luo and Wang (2003); Exercise 1 |
+| 4.6 | Assign each hexagon to one region, and compare the scores of the five regions, weighted by the residents aged 65 and over | Long (2017), section 4; Luo and Wang (2003); Luo and Qi (2009) |
+
+## Network distances: missing routes and the straight-line lower bound
+
+In the network analysis of Kalogirou and Foley (2006, p. 55), no distance was found for some
+electoral divisions, "primarily on islands". The 9,090 residents of those divisions, 0.23% of the
+resident population of Ireland in the 2002 census, were left out of their model. In chapter 17,
+`distmat_km` is used without a check for missing distances. A network distance follows the roads
+(Long, 2017, section 2.2; slide 6), so it is at least as long as the straight line between the same
+two points. Comparing each network distance with the straight-line distance of the same pair is an
+extension of the course material, based on that definition.
+
+The question for this section is whether the distances in `OD_Matrix.csv` satisfy two conditions: no
+network distance is shorter than the straight line, and the distances from a hexagon to different
+centres differ.
+
+```{r}
+hex_xy <- st_coordinates(st_centroid(st_geometry(hexagons)))
+ctr_xy <- st_coordinates(eldercare)
+euclid_km <- sqrt(outer(hex_xy[, 1], ctr_xy[, 1], "-")^2 +
+                  outer(hex_xy[, 2], ctr_xy[, 2], "-")^2) / 1000
+detour <- distmat_km / euclid_km
+
+c(pairs = length(detour),
+  median_ratio = median(detour),
+  network_shorter = sum(detour < 1))
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+st_centroid(x); st_coordinates(x)                         # sf
+outer(X, Y, FUN = "-")                                    # base R
+```
+
+- `st_centroid()` returns the centre of each hexagon, and `st_coordinates()` returns the x and y of
+  each centre in metres.
+- `outer(X, Y, "-")` subtracts every coordinate of a centre from every coordinate of a hexagon, and
+  returns a matrix of 3,125 hexagons by 120 centres. The straight-line distance is the square root
+  of the sum of the squared x and y differences, divided by 1000 to give kilometres.
+- `detour` divides each network distance by the straight-line distance of the same pair.
+:::
+
+```{r}
+#| echo: false
+n_short <- sum(detour < 1)
+```
+
+The median network distance is `r round(median(detour), 2)` times the straight-line distance. The
+first condition fails for `r format(n_short, big.mark = ",")` of the 375,000 pairs of hexagon and
+centre: their network distance is shorter than the straight line.
+
+```{r}
+od_check <- ODMatrix |>
+  group_by(origin_id) |>
+  summarise(distinct_costs = n_distinct(total_cost))
+
+broken_fid <- od_check$origin_id[od_check$distinct_costs == 1]
+length(broken_fid)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+n_distinct(x)                                             # dplyr
+```
+
+- For each hexagon, `n_distinct()` counts the different values of `total_cost` among its 120 rows. A
+  hexagon with a different distance to each of the 120 centres has 120 distinct values of
+  `total_cost`.
+:::
+
+Of the 3,125 hexagons, `r length(broken_fid)` have one value of `total_cost` for all 120 centres.
+
+```{r}
+centre_exit <- ODMatrix |>
+  filter(!origin_id %in% broken_fid) |>
+  distinct(destination_id, exit_cost)
+
+ODMatrix |>
+  filter(origin_id %in% broken_fid) |>
+  distinct(origin_id, exit_cost) |>
+  left_join(centre_exit, by = "exit_cost") |>
+  count(destination_id)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- `exit_cost` is the distance from the road to a centre, so each centre has one value, the same for
+  every hexagon. `centre_exit` lists that value for each centre, from the hexagons with valid rows.
+- The join matches the `exit_cost` of each of the 159 hexagons to the centre with that value, and
+  `count()` counts the hexagons per centre.
+:::
+
+All 159 hexagons carry the exit cost of centre 133, the last centre in the file. Their rows hold the
+distance to centre 133, repeated for every other centre. The pattern is consistent with a network
+analysis in which no route was found from these hexagons, and their rows were filled with the result
+for the last centre.
+
+```{r}
+#| echo: false
+#| fig-height: 5.5
+hexagons <- hexagons |>
+  mutate(od_ok = !fid %in% broken_fid)
+broken_pa <- st_join(st_centroid(filter(hexagons, !od_ok)),
+                     mpsz["PLN_AREA_N"]) |>
+  st_drop_geometry() |>
+  count(PLN_AREA_N, sort = TRUE)
+broken_near <- sum(apply(euclid_km[!hexagons$od_ok, ], 1, min) <= 5)
+tm_shape(hexagons, bbox = mapex) +
+  tm_polygons(fill = "od_ok",
+              fill.scale = tm_scale_categorical(values = c("firebrick", "grey92"),
+                                                labels = c("one distance to all centres",
+                                                           "distances vary")),
+              fill.legend = tm_legend(title = "Row in OD_Matrix"),
+              col_alpha = 0.2) +
+tm_shape(eldercare) +
+  tm_dots(size = 0.2, fill = "black") +
+  tm_title("Hexagons with one network distance to all 120 centres") +
+  tm_layout(frame = FALSE)
+```
+
+Of the 159 hexagons, `r broken_pa$n[1]` are in the Western Water Catchment and `r broken_pa$n[2]` in
+the Southern Islands. The other `r 159 - broken_pa$n[1] - broken_pa$n[2]` are scattered along the
+coast and the edges of the reservoirs. Of the 159, `r broken_near` have a centre within 5 km in a
+straight line, so their KD2SFCA score of 0 in section 3.2 may be wrong. One hexagon, 1067, near
+International Business Park, has a repeated distance of 4.97 km, so all 120 centres are inside its
+catchment of 5 km.
+
+In the rest of Part 2, the 159 hexagons are left out of every calculation and mapped in grey. The
+accessibility measures are computed on the other 2,966 hexagons and their rows of the distance
+matrix:
+
+```{r}
+ok <- hexagons$od_ok
+D <- distmat_km[ok, ]
+p100 <- hexagons$demand[ok]
+n100 <- eldercare$capacity
+dim(D)
+```
+
+## Formulas in `ac()`: code versus slides and readings
+
+In section 3, `ac()` was called three times, for the Hansen, KD2SFCA and SAM measures. No formula
+for the three measures is given in chapter 17. The authors of the readings write out the formula of
+each measure they compute: Hansen (1959, p. 5), Luo and Wang (2003, equations 3 to 6), Luo and Qi
+(2009, equations 1 to 5), Polzin et al. (2014, equations 3 and 4), Cheng et al. (2016, equations 1
+to 5) and Kalogirou and Foley (2006, p. 58). On the slides, formulas are given for Stewart's
+potential model (slide 19), 2SFCA (slides 25 and 26), E2SFCA (slide 27) and SAM (slide 29). Slide 8
+shows the two usual forms of distance decay: the power function $\alpha / d^{\beta}$ and the
+exponential function $\alpha e^{-\beta d}$. The source of `ac()`, about 50 lines long, is printed by
+typing the name of the function:
+
+```{r}
+SpatialAcc::ac
+```
+
+The table lists each value of the `family` argument of `ac()` beside its definition in the slides
+and the readings.
+
+| Family | Computed by `ac()` | In the slides or the readings | Difference |
+|-----------|---------------------------|-------------------------------------|-------------------------|
+| `Hansen` | $\sum_j n_j e^{-\beta d_{ij}}$ | Hansen (1959, p. 5): $\sum_j S_j / T_{ij}^{x}$; slide 19 (Stewart): $\sum_j M_j / d_{ij}^{\alpha}$ | exponential decay in `ac()`, power function in Hansen's thesis |
+| `2SFCA` | $\sum_{j: d_{ij} \le d_0} n_j / \sum_{k: d_{kj} \le d_0} p_k$ | slides 25 and 26; Luo and Wang (2003, equations 3 and 4) | none |
+| `KD2SFCA` | 2SFCA with each term multiplied by $e^{-d^{\beta}}$ | Dai and Wang (2011), according to Polzin et al. (2014, equation 4): $\tfrac{3}{4}(1 - (d/d_0)^2)$; Cheng et al. (2016, equation 3): $e^{-d^2/k}$ | the kernel of `ac()` has no width parameter, so its shape is the same for every $d_0$ |
+| `SAM` | $\sum_j n_j / (p_i \, d_{ij}^{\beta})$ | slide 29: $\frac{1}{p_i} \sum_j n_j / (p_i \, d_{ij}^2)$ | $p_i$ appears once in `ac()` and twice on the slide; `d0` is not used |
+
+Hansen's thesis says that "an exponential function of distance should be used", and then explains
+that "the measurement of distance separating the various areas should be raised to some power". In
+the thesis, the "exponential function of distance" is the distance raised to a power. `ac()`
+computes the exponential function of slide 8, e raised to a multiple of the distance.
+
+The chart shows the weight of each kernel on this page at each distance, together with the
+distribution of the distance from each hexagon to its nearest centre.
+
+::: {.panel-tabset}
+#### Chart
+
+```{r}
+#| label: kernel-chart
+#| echo: false
+#| fig-height: 9
+k_cheng <- 5^2 / log(20)
+near <- apply(D, 1, min)
+near_med <- median(near)
+
+kernels <- list(
+  `Hansen, power = 2: exp(-2d)`         = \(d) exp(-2 * d),
+  `Hansen, power = 0.5: exp(-0.5d)`     = \(d) exp(-0.5 * d),
+  `power function: 1/d²`                = \(d) pmin(1, 1 / d^2),
+  `KD2SFCA in ac(): exp(-d²)`           = \(d) exp(-d^2) * (d <= 5),
+  `Epanechnikov, d0 = 5 km`             = \(d) (1 - (d / 5)^2) * (d <= 5),
+  `Gaussian of Cheng et al., d0 = 5 km` = \(d) exp(-d^2 / k_cheng) * (d <= 5),
+  `2SFCA, d0 = 5 km`                    = \(d) as.numeric(d <= 5))
+k_col <- c("#08519c", "#6baed6", "#31a354", "#e6550d", "#fdae6b", "#756bb1", "#666666")
+k_thick <- c(TRUE, FALSE, FALSE, TRUE, FALSE, FALSE, FALSE)  # the chapter's two kernels
+
+d <- sort(c(seq(0, 10, by = 0.05), near_med))
+p_decay <- plotly::plot_ly()
+for (k in seq_along(kernels)) {
+  name <- names(kernels)[k]
+  p_decay <- p_decay |>
+    plotly::add_lines(x = d, y = kernels[[k]](d), name = name, legendgroup = name,
+                      line = list(color = k_col[k], width = if (k_thick[k]) 4 else 2,
+                                  dash = if (k == 7) "dash" else "solid"),
+                      hovertemplate = "%{y:.3g}") |>
+    plotly::add_markers(x = near_med, y = kernels[[k]](near_med), name = name,
+                        legendgroup = name, showlegend = FALSE,
+                        marker = list(color = k_col[k], size = 10), hoverinfo = "skip")
+}
+median_line <- list(dash = "dot", color = "#4d4d4d", width = 1.5)
+median_hover <- sprintf("median distance to the nearest centre: %.2f km", near_med)
+p_decay <- p_decay |>
+  plotly::add_lines(x = c(near_med, near_med), y = c(0, 1), line = median_line,
+                    name = "median", showlegend = FALSE, hovertemplate = median_hover) |>
+  plotly::layout(yaxis = list(title = "weight"))
+
+bins <- tibble(d = near) |>
+  count(lo = floor(d / 0.25) * 0.25) |>
+  mutate(range = sprintf("%.2f to %.2f km", lo, lo + 0.25))
+p_near <- plotly::plot_ly(bins, x = ~lo + 0.125, y = ~n, type = "bar", customdata = ~range,
+                          name = "nearest centre", showlegend = FALSE,
+                          marker = list(color = "#999999"),
+                          hovertemplate = "%{customdata}, %{y} hexagons") |>
+  plotly::add_lines(x = c(near_med, near_med), y = c(0, max(bins$n)), line = median_line,
+                    name = "median", showlegend = FALSE, hovertemplate = median_hover,
+                    inherit = FALSE) |>
+  plotly::layout(yaxis = list(title = "hexagons"), bargap = 0.05)
+
+plotly::subplot(p_decay, p_near, nrows = 2, shareX = TRUE, titleY = TRUE,
+                heights = c(0.65, 0.35), margin = 0.04) |>
+  plotly::layout(
+    hovermode = "x unified",
+    xaxis = list(title = "network distance d (km)", range = c(0, 10), hoverformat = ".2f"),
+    legend = list(orientation = "h", x = 0, y = 1.02, yanchor = "bottom"),
+    margin = list(t = 120),
+    annotations = list(list(xref = "x", yref = "y2", x = near_med, y = max(bins$n),
+                            xanchor = "left", yanchor = "top", showarrow = FALSE,
+                            bgcolor = "rgba(255, 255, 255, 0.85)",
+                            text = sprintf(paste0("  median distance from a hexagon<br>",
+                                                  "  to its nearest centre: %.1f km"), near_med))))
+```
+
+#### Code
+
+```{r}
+#| ref.label: kernel-chart
+#| eval: false
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+plot_ly(); add_lines(x, y, name, line, hovertemplate)     # plotly
+add_markers(x, y, marker); count(x, ...)                  # plotly, dplyr
+subplot(..., nrows, shareX, heights); layout(...)         # plotly
+```
+
+- `k_cheng` is the width of the Gaussian kernel of Cheng et al. (2016), chosen so that the weight at
+  the edge of the catchment is 0.05: $e^{-25/k} = 0.05$ gives $k = 25 / \ln 20
+  = `r round(k_cheng, 2)` \text{ km}^2$.
+- `near` is the distance from each of the 2,966 hexagons to its nearest centre.
+- `near_med` is the median of `near`.
+- Each element of `kernels` is one kernel, written as a function of the distance $d$. The
+  Epanechnikov kernel is drawn without its factor 3/4. The power function is capped at 1. With these
+  two changes, every kernel has the value 1 at a distance of 0. The factor 3/4 and the cap apply to
+  the chart only. In section 4.3, the power function is computed without a cap. In KD2SFCA, the
+  factor 3/4 cancels between step 1 and step 2.
+- `add_lines()` draws each kernel from 0 to 10 km, twice the catchment of 5 km. The median distance
+  is added to the distances, so that the hover text shows the weight at the median.
+- `add_markers()` adds a dot on each kernel at the median distance.
+- The kernels of the chapter's code, Hansen with `power = 2` and KD2SFCA in `ac()`, are drawn thick.
+  2SFCA is dashed.
+- `count()` counts the hexagons in bins of 0.25 km.
+- `plot_ly(type = "bar")` draws the counts.
+- A second `add_lines()` in each panel draws the dotted line at the median distance.
+- `subplot(shareX = TRUE)` places the histogram under the kernels, on one distance axis.
+- `hovermode = "x unified"` shows the weight of every kernel at the distance under the mouse.
+:::
+:::
+
+The median distance from a hexagon to its nearest centre is `r round(near_med, 1)` km.
+At `r round(near_med, 1)` km, the KD2SFCA kernel of `ac()` is `r sci(exp(-near_med^2))`, and the
+Hansen weight with `power = 2` is `r sci(exp(-2 * near_med))`. At the same distance, the
+Epanechnikov kernel of the readings is `r round(1 - (near_med / 5)^2, 2)`, and the Gaussian kernel
+of Cheng et al. is `r round(exp(-near_med^2 / k_cheng), 2)`. The kernel of `ac()` is 0.018 at 2 km,
+so the centres between 2 and 5 km away have weights below 0.018.
+
+The kernel of `ac()` is applied to the distances in the unit of the matrix, with no conversion. A
+centre 2 km away has a weight of 0.018 with distances in kilometres and a weight of 0 with distances
+in metres. The kernel of Cheng et al. (2016) divides the squared distance by a width $k$ set from
+the size of the catchment, so its weights are the same in kilometres and in metres.
+
+## Hansen model: exponential versus power decay, and unequal capacities
+
+In section 3.1, Hansen's measure was computed with `power = 2`. In the chapter's single code chunk,
+the calculation is repeated with `power = 0.5`. The scores for `power = 2` and `power = 0.5` are not
+compared. Luo and Wang (2003, Table 1) computed their gravity measure with seven values of $\beta$,
+from 1.0 to 2.2, and found a larger variance of the scores with a larger $\beta$. Hansen (1959)
+measured one exponent for each trip purpose: 2.20 for work trips, 2.35 for social trips and 3.00 for
+shopping trips, with travel time in minutes (p. 9). He considered the relative measures of
+accessibility "not particularly sensitive to small variations in the exponent of distance" (p. 35).
+On slide 19, the exponent of distance in Stewart's model, written $\alpha$, is "usually between 1
+and 2". In `ac()`, `power` is the $\beta$ of an exponential function, whereas Hansen (1959) used a
+power function of distance (section 4.2).
+
+In all six readings that compute a measure, the supply differs between locations: the jobs, retail
+sales or population of each zone in Hansen (1959), the physicians at each location in Luo and Wang
+(2003) and Luo and Qi (2009), the physicians of each hospital in Polzin et al. (2014), the
+practising doctors of each hospital in Cheng et al. (2016) and the beds of each hospital in
+Kalogirou and Foley (2006). In chapter 17, every centre has a capacity of 100, so `ac()` is not run
+with unequal capacities. Testing `ac()` with unequal capacities is an extension of the course
+material, based on the source of `ac()` printed in section 4.2.
+
+The question for this section is how much the choice of decay changes the ranking of the hexagons,
+and whether `ac()` weights each centre by its own capacity.
+
+```{r}
+hansen <- tibble(
+  `exp(-2d)` = ac(p100, n100, D, power = 2, family = "Hansen"),
+  `exp(-0.5d)` = ac(p100, n100, D, power = 0.5, family = "Hansen"),
+  `1/d²` = as.vector(D^-2 %*% n100))
+
+cor(hansen, method = "spearman") |>
+  kable(digits = 3)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- The first two columns are the chapter's two calls. The third column is the power function of slide
+  19 with $\alpha = 2$: `D^-2` raises every distance to the power -2, and the matrix product `%*%`
+  with the capacities sums $n_j / d_{ij}^2$ over the centres for each hexagon.
+- `cor(method = "spearman")` correlates the ranks of the hexagons under each pair of measures.
+:::
+
+```{r}
+#| echo: false
+h_spread <- map_dbl(hansen, \(x) max(x) / median(x))
+```
+
+The ranks are similar under the three measures, with rank correlations of 0.95 to 0.99. The spread
+of the scores differs: the highest score is `r format(round(h_spread[1]), big.mark = ",")` times the
+median with `power = 2`, `r round(h_spread[2])` times with `power = 0.5`, and `r round(h_spread[3])`
+times with $1/d^2$. With `power = 2`, a centre 700 m away has a quarter of the weight of a centre
+next to the hexagon, since $e^{-1.4} = 0.25$. With `power = 2`, a map with ten equal intervals would
+place `r round(100 * mean(hansen$"exp(-2d)" < max(hansen$"exp(-2d)") / 10))`% of the hexagons in the
+lowest class.
+
+```{r}
+#| echo: false
+stopifnot(isTRUE(all.equal(ac(p100, n100, D, power = 2, family = "SAM"), hansen$`1/d²` / 100)))
+```
+
+With a demand of 100 in every hexagon and `power = 2`, the SAM scores of the 2,966 hexagons equal
+the `1/d²` column divided by 100. The hexagons therefore have the same rank order under SAM and
+under the Hansen measure with $1/d^2$.
+
+```{r}
+#| fig-height: 4.5
+hex_ok <- filter(hexagons, od_ok)
+
+decile_map <- function(data, var, title, palette = "brewer.blues") {
+  tm_shape(hexagons, bbox = mapex) +
+    tm_polygons(fill = "grey85", col_alpha = 0) +
+  tm_shape(data) +
+    tm_polygons(fill = var,
+                fill.scale = tm_scale_intervals(style = "quantile", n = 10,
+                                                values = palette),
+                fill.legend = tm_legend(show = FALSE),
+                col_alpha = 0) +
+    tm_title(title, size = 0.9) +
+    tm_layout(frame = FALSE)
+}
+
+tmap_arrange(
+  decile_map(bind_cols(hex_ok, hansen), "exp(-2d)", "Hansen, exp(-2d)"),
+  decile_map(bind_cols(hex_ok, hansen), "exp(-0.5d)", "Hansen, exp(-0.5d)"),
+  decile_map(bind_cols(hex_ok, hansen), "1/d²", "Power function, 1/d²"),
+  ncol = 3)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- `decile_map()` draws all hexagons in grey, then the valid hexagons coloured by deciles of one
+  score, with no legend, so that several maps can be compared by pattern. The 159 hexagons of
+  section 4.1 stay grey.
+- `tmap_arrange()` places the three maps in one row.
+:::
+
+Drawn in deciles, the three maps are close to identical, as the rank correlations indicate. The
+choice of decay changes the size of the differences between hexagons, and the deciles keep only
+their order.
+
+The capacity argument `n` of `ac()` has one value per centre. In the source printed in section 4.2,
+the Hansen family computes `n * exp(-power * D)`. `D` is a matrix with one row per hexagon, and `n`
+has one value per centre. R multiplies a matrix by a vector element by element, down the columns,
+starting the vector again from its first value when the vector is shorter than the matrix. The first
+value of `n` is therefore applied to the weight of the first hexagon for centre 1, the second value
+to the weight of the second hexagon for centre 1, and each later value to the weight of the next
+hexagon. The capacity of centre $j$ should multiply every weight for centre $j$.
+
+The example of section 3.2.1 has four hexagons and two centres, with a capacity of 1 for centre A
+and 3 for centre B:
+
+```{r}
+tibble(hexagon = 1:4,
+       `ac(family = "Hansen")` = ac(toy_p, toy_n, toy_D, power = 0.5,
+                                    family = "Hansen"),
+       `by hand` = as.vector(exp(-0.5 * toy_D) %*% toy_n)) |>
+  kable(digits = 3)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- `exp(-0.5 * toy_D) %*% toy_n` is the matrix product: for each hexagon, the sum over the centres of
+  the weight times the capacity of that centre.
+:::
+
+```{r}
+#| echo: false
+toy_h <- ac(toy_p, toy_n, toy_D, power = 0.5, family = "Hansen")
+toy_hand <- as.vector(exp(-0.5 * toy_D) %*% toy_n)
+```
+
+Hexagons 2 and 3 have swapped distances: each is 2 km from one centre and 4 km from the other.
+Hexagon 3 is 2 km from the larger centre B and should score higher, as it does by hand
+(`r round(toy_hand[3], 2)` against `r round(toy_hand[2], 2)`). `ac()` gives the opposite order
+(`r round(toy_h[3], 2)` against `r round(toy_h[2], 2)`). The chapter's scores are correct, because
+every centre has a capacity of 100. With actual capacities, the Hansen family of `ac()` gives wrong
+scores. The matrix product above is the correct calculation. The 2SFCA and KD2SFCA families of
+`ac()` divide by `colSums()` and transpose the weight matrix before multiplying it by the
+capacities. For the toy example of section 3.2.1, with the same unequal capacities, 2SFCA gives the
+same result by hand and with `ac()`.
+
+## Floating catchment methods: kernel shape and catchment size
+
+In section 3.2, KD2SFCA was computed once, with the kernel of `ac()` and a catchment of 5 km. The
+kernel gives weights below 0.018 beyond 2 km (section 4.2). In 2SFCA (slides 24 to 26), every centre
+within the catchment counts equally. In E2SFCA (slides 27 and 28), the catchment is divided into
+three zones with decreasing weights. In KD2SFCA (Polzin et al., 2014), a continuous kernel replaces
+the zones.
+
+Luo and Wang (2003) computed 2SFCA with seven catchments, from 20 to 50 minutes, and found that the
+scores had a lower variance with a larger catchment. Luo and Qi (2009) computed E2SFCA with two sets
+of zone weights. On p. 1104, they report that 2SFCA gives higher scores than E2SFCA in areas of poor
+access, which they attribute to the assumption of equal access inside the catchment in 2SFCA. They
+also find that 2SFCA identifies a smaller total shortage area than E2SFCA. With the weights of set
+2, which decrease faster with distance, E2SFCA identifies a larger total shortage area than with the
+weights of set 1 (Luo and Qi, 2009, p. 1104; speaker notes of slide 28). Polzin et al. (2014)
+compared the Epanechnikov kernel of Dai and Wang (2011) with a quartic kernel. Cheng et al. (2016)
+set the width of a Gaussian kernel so that the weight at the edge of the catchment is 0.05.
+
+Luo and Wang (2003) show that, in 2SFCA, the average accessibility weighted by demand equals the
+total supply divided by the total demand, provided every centre has some demand within its
+catchment. The capacity of each centre is allocated to the hexagons in its catchment. In E2SFCA and
+KD2SFCA, the same weights enter step 1 and step 2, so the capacity is allocated in the same way, and
+the same equality holds.
+
+The question for this section is how much the scores depend on the kernel and on the size of the
+catchment, and whether each computation satisfies the property of Luo and Wang (2003).
+
+```{r}
+fca_weights <- function(D, kernel, d0 = 5) {
+  W <- switch(kernel,
+    step = (D <= d0) * 1,
+    ac_default = exp(-D^2) * (D <= d0),
+    epanechnikov = (1 - (D / d0)^2) * (D <= d0),
+    cheng = exp(-D^2 / (d0^2 / log(20))) * (D <= d0),
+    e2sfca_1 = c(1, 0.68, 0.22, 0)[findInterval(D, c(d0 / 3, 2 * d0 / 3, d0),
+                                                left.open = TRUE) + 1],
+    e2sfca_2 = c(1, 0.42, 0.09, 0)[findInterval(D, c(d0 / 3, 2 * d0 / 3, d0),
+                                                left.open = TRUE) + 1])
+  matrix(W, nrow = nrow(D))
+}
+
+fca <- function(p, n, D, kernel, d0 = 5) {
+  W <- fca_weights(D, kernel, d0)
+  R <- n / colSums(p * W)
+  R[!is.finite(R)] <- 0
+  as.vector(W %*% R)
+}
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- `fca_weights()` returns a matrix of the same shape as `D`, with the weight of each pair under one
+  kernel. `(D <= d0)` is `TRUE` inside the catchment and `FALSE` outside, which become 1 and 0 when
+  multiplied. For E2SFCA, `findInterval()` returns 0, 1, 2 or 3 for a distance in the first, second
+  or third zone or beyond the catchment. The weight is then looked up in a vector of four zone
+  weights. The zones are thirds of the catchment, in place of the 10-minute zones of a 30-minute
+  catchment on slide 27. The zone weights of `e2sfca_1` and `e2sfca_2` are weight sets 1 and 2 of
+  Luo and Qi (2009).
+- `fca()` computes the two steps of section 3.2.1 with any kernel. `colSums(p * W)` is the weighted
+  demand in the catchment of each centre (`p * W` multiplies row $i$ of `W` by the demand of hexagon
+  $i$), and `R` is the ratio of capacity to weighted demand for each centre. For a centre with no
+  demand in its catchment, the ratio is capacity divided by 0, and is set to 0, as in `ac()`. The
+  matrix product `W %*% R` is step 2, the weighted sum of the ratios for each hexagon.
+:::
+
+```{r}
+fca_scores <- tibble(
+  `2SFCA` = fca(p100, n100, D, "step"),
+  `E2SFCA, weights 1` = fca(p100, n100, D, "e2sfca_1"),
+  `E2SFCA, weights 2` = fca(p100, n100, D, "e2sfca_2"),
+  `KD2SFCA, ac() kernel` = fca(p100, n100, D, "ac_default"),
+  `KD2SFCA, Epanechnikov` = fca(p100, n100, D, "epanechnikov"),
+  `KD2SFCA, Cheng et al.` = fca(p100, n100, D, "cheng"))
+
+c(same_as_ac_2SFCA = all.equal(fca_scores$`2SFCA`,
+                               ac(p100, n100, D, d0 = 5, family = "2SFCA")),
+  same_as_ac_KD2SFCA = all.equal(fca_scores$`KD2SFCA, ac() kernel`,
+                                 ac(p100, n100, D, d0 = 5, power = 2,
+                                    family = "KD2SFCA")))
+```
+
+`fca()` reproduces the scores of `ac()` for 2SFCA and KD2SFCA. The table lists, for each method, the
+weighted mean of the property of Luo and Wang (2003), with three other summaries:
+
+```{r}
+fca_scores |>
+  summarise(across(everything(),
+                   list(weighted_mean = \(a) weighted.mean(a, p100),
+                        sd = sd,
+                        zeros = \(a) sum(a == 0),
+                        max = max))) |>
+  pivot_longer(everything(),
+               names_to = c("method", ".value"),
+               names_pattern = "(.*)_(weighted_mean|sd|zeros|max)") |>
+  kable(digits = 4)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- `summarise(across())` computes four statistics for every column: the mean weighted by demand, the
+  standard deviation, the number of hexagons with a score of 0, and the maximum. `pivot_longer()`
+  with `names_pattern` splits each column name into the method and the statistic, so that each
+  method is one row.
+:::
+
+```{r}
+#| echo: false
+sp_ratio <- sum(n100) / sum(p100)
+```
+
+The total capacity is 120 × 100 = 12,000 and the total demand
+is `r format(length(p100), big.mark = ",")` × 100, so the ratio is `r round(sp_ratio, 4)`. Every
+method has a weighted mean equal to that ratio, the property of Luo and Wang (2003), which is
+consistent with every centre having some demand within 5 km. Every method has the
+same `r format(sum(fca_scores$"2SFCA" == 0), big.mark = ",")` hexagons at zero, since every method
+uses the catchment of 5 km. The scores from the kernel of `ac()` have more than twice the standard
+deviation of the scores from the Epanechnikov and Gaussian kernels. The weights of the `ac()` kernel
+fall to 0.37 at 1 km and 0.018 at 2 km, so its scores are concentrated on hexagons near a centre.
+
+```{r}
+#| echo: false
+all_2sfca <- fca(hexagons$demand, n100, distmat_km, "step")
+top_2sfca <- hexagons$fid[which.max(all_2sfca)]
+```
+
+When the 2SFCA scores are computed on all 3,125 hexagons, including the 159 hexagons of section 4.1,
+the highest score, `r round(max(all_2sfca), 2)`, is at hexagon `r top_2sfca`, which has all 120
+centres at a repeated distance of 4.97 km.
+
+```{r}
+fca_scores |>
+  filter(`2SFCA` > 0) |>
+  cor(method = "spearman") |>
+  kable(digits = 2)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- The `r format(sum(fca_scores$"2SFCA" == 0), big.mark = ",")` hexagons with a score of 0 under
+  every method are left out. Tied at the bottom of every ranking, they would raise all the
+  correlations.
+:::
+
+```{r}
+#| echo: false
+fca_cor <- fca_scores |> filter(`2SFCA` > 0) |> cor(method = "spearman")
+```
+
+Among the hexagons with a centre within 5 km, the rank correlations among 2SFCA, E2SFCA and the
+Epanechnikov and Gaussian kernels of KD2SFCA range from `r round(min(fca_cor[-4, -4]), 2)`
+to `r round(max(fca_cor[-4, -4][fca_cor[-4, -4] < 1]), 2)`. The scores from the kernel of `ac()`
+have their lowest rank correlation with the 2SFCA scores, `r round(fca_cor[4, 1], 2)`.
+
+```{r}
+#| fig-height: 9
+fca_sf <- bind_cols(hex_ok, fca_scores)
+tmap_arrange(
+  decile_map(fca_sf, "2SFCA", "2SFCA, 5 km"),
+  decile_map(fca_sf, "E2SFCA, weights 2", "E2SFCA, weights 2"),
+  decile_map(fca_sf, "KD2SFCA, ac() kernel", "KD2SFCA, kernel of ac()"),
+  decile_map(fca_sf, "KD2SFCA, Cheng et al.", "KD2SFCA, Gaussian of Cheng et al."),
+  ncol = 2)
+```
+
+Under 2SFCA, the scores change in steps, at the distances where a centre enters or leaves the
+catchment of a hexagon. E2SFCA has three smaller steps per centre. The scores under the Gaussian
+kernel of Cheng et al. (2016) decline smoothly from each centre. The scores from the kernel of
+`ac()` are highest within 1 km of a centre, where the weight is at least 0.37, and the weight is
+below 0.018 at more than 2 km from a centre.
+
+Luo and Wang (2003) tested catchments of 20 to 50 minutes for physicians. Users of eldercare may
+travel less far than patients of a physician, and a smaller catchment is then plausible. The table
+lists the results for catchments of 2 to 15 km:
+
+```{r}
+map_dfr(c(2, 3, 5, 8, 10, 15), \(d0) {
+  a <- fca(p100, n100, D, "step", d0)
+  tibble(d0_km = d0,
+         sd = sd(a),
+         hexagons_at_zero = sum(a == 0),
+         centres_without_demand = sum(colSums(D <= d0) == 0),
+         weighted_mean = weighted.mean(a, p100))
+}) |>
+  kable(digits = 4)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- `map_dfr()` runs 2SFCA for each catchment size and stacks the one-row summaries.
+  `centres_without_demand` counts the centres with no hexagon within `d0`. The capacity of those
+  centres is lost in step 1, and the weighted mean falls below the ratio of supply to demand.
+:::
+
+```{r}
+#| echo: false
+lost_j <- which(colSums(D <= 3) == 0)
+zero_2 <- sum(fca(p100, n100, D, "step", 2) == 0)
+zero_15 <- sum(fca(p100, n100, D, "step", 15) == 0)
+h_line <- which(ok)[which.min(euclid_km[ok, lost_j])]      # nearest centroid in a straight line
+h_road <- which(ok)[which.min(D[, lost_j])]               # nearest hexagon by road
+n_close <- sum(euclid_km[ok, ] < 0.5)
+n_detour <- sum(euclid_km[ok, ] < 0.5 & D > 2)
+```
+
+The standard deviation falls as the catchment grows, as Luo and Wang (2003) found. The share of
+hexagons with a 2SFCA score of 0 falls from `r round(100 * zero_2 / nrow(D))`% at 2 km
+to `r round(100 * zero_15 / nrow(D))`% at 15 km. With a 2 or 3 km catchment, one centre has no
+hexagon within the catchment. Its capacity is lost, so the weighted mean is below the ratio of
+supply to demand. That centre, with postal code `r eldercare$ADDRESSPOS[lost_j]`, has no hexagon
+within 3 km by road, although the centroid of hexagon `r hexagons$fid[h_line]`
+is `r round(euclid_km[h_line, lost_j] * 1000)` m away in a straight line (map below).
+
+```{r}
+#| echo: false
+#| fig-height: 6.5
+dt_hex <- hexagons[h_line, ]
+dt_pts <- st_sf(label = c(sprintf("centroid of hexagon %d", dt_hex$fid),
+                          sprintf("eldercare centre %s", eldercare$ADDRESSPOS[lost_j])),
+                geometry = c(st_centroid(st_geometry(dt_hex)), st_geometry(eldercare[lost_j, ])))
+dt_link <- st_sf(label = sprintf("%.0f m in a straight line; %.1f km by road",
+                                 euclid_km[h_line, lost_j] * 1000, distmat_km[h_line, lost_j]),
+                 geometry = st_cast(st_union(st_geometry(dt_pts)), "LINESTRING"))
+dt_note <- st_sf(label = dt_link$label,
+                 geometry = st_centroid(st_geometry(dt_link)) + c(185, 0), crs = 3414)
+lost_od <- ODMatrix |>
+  filter(origin_id == dt_hex$fid, destination_id == eldercare$fid[lost_j])
+tm_basemap("OpenStreetMap", zoom = 17) +
+tm_shape(dt_hex, bbox = st_bbox(st_buffer(st_geometry(dt_hex), 120))) +
+  tm_borders(col = "darkgreen", lwd = 3) +
+tm_shape(dt_link) +
+  tm_lines(col = "#08519c", lwd = 3, lty = "dashed") +
+tm_shape(dt_note) +
+  tm_text("label", size = 0.85, fontface = "bold", col = "#08519c", bgcol = "white",
+          bgcol_alpha = 0.9) +
+tm_shape(dt_pts) +
+  tm_dots(fill = "label", size = 0.9,
+          fill.scale = tm_scale_categorical(values = c("darkgreen", "#3182bd")),
+          fill.legend = tm_legend(title = "")) +
+  tm_title(sprintf("Hexagon %d and eldercare centre %s on the street map", dt_hex$fid,
+                   eldercare$ADDRESSPOS[lost_j])) +
+  tm_credits("Base map © OpenStreetMap contributors", position = c("right", "bottom")) +
+  tm_layout(frame = TRUE, legend.outside = TRUE, legend.outside.position = "bottom")
+```
+
+On the street map, the eldercare centre and the centroid of hexagon `r dt_hex$fid` are in the same
+housing estate, north of the Pan-Island Expressway. The centre and the centroid are connected by
+footpaths and Pipit Road. The `exit_cost` of the centre, from the nearest road to the centre,
+is `r round(lost_od$exit_cost)` m, and the road closest to the centre on the street map is the
+expressway. An `exit_cost` of `r round(lost_od$exit_cost)` m and a `network_cost`
+of `r format(round(lost_od$network_cost), big.mark = ",")` m are consistent with a network analysis
+that joined the centre to the expressway, so that the route to the centre runs along the expressway.
+
+Of the `r n_close` pairs of hexagon and centre less than 500 m apart in a straight line in the whole
+matrix, `r n_detour` are more than 2 km apart by road.
+
+## Demand: residents aged 65 and over by areal weighting
+
+In section 2.3.3, every hexagon was given a demand of 100. According to the chapter, the actual
+demand should be used in practice. Kalogirou and Foley (2006) measured the demand for hospitals by
+the population aged 65 and over, as "the population sub-group who would be most likely to be the
+heaviest users". Luo and Wang (2003) and Luo and Qi (2009) took the demand from census counts of the
+population. Polzin et al. (2014) adjusted the census counts with a health needs index that includes
+the share of the population under 15 and over 65. In this exercise, the demand for eldercare is
+measured by the residents aged 65 and over, as in Kalogirou and Foley (2006).
+
+Exercise 1 used the 2020 census table of residents by subzone, age and sex from SingStat. The census
+counts residents by subzone, and the measures require a count for each hexagon. Areal weighting
+divides the count of each subzone among the hexagons in proportion to the area of the subzone that
+each hexagon covers. The method assumes that the residents are spread evenly over each subzone.
+
+The question for this section is how much the accessibility scores change when the demand is the
+number of residents aged 65 and over in each hexagon.
+
+```{r}
+popdata <- read_csv("data/aspatial/respop_census2020_agesex.csv",
+                    col_types = cols(.default = "c"))
+
+to_count <- function(x) {
+  x <- str_replace_all(x, ",", "")
+  x[x == "-"] <- "0"
+  as.numeric(x)
+}
+
+aged_sz <- popdata |>
+  mutate(across(-Number, to_count)) |>
+  filter(!str_detect(toupper(Number), "^TOTAL$| ?- ?TOTAL$")) |>
+  mutate(SUBZONE_N = toupper(str_trim(Number)),
+         SUBZONE_N = if_else(str_starts(SUBZONE_N, "LAKESIDE"), "LAKESIDE", SUBZONE_N),
+         AGED = Total_65_69 + Total_70_74 + Total_75_79 +
+                Total_80_84 + Total_85_89 + Total_90andOver) |>
+  group_by(SUBZONE_N) |>
+  summarise(AGED = sum(AGED))
+
+c(census_total = sum(aged_sz$AGED),
+  matched_to_mp14 = sum(aged_sz$AGED[aged_sz$SUBZONE_N %in% mpsz$SUBZONE_N]))
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- `col_types = cols(.default = "c")` reads every column as text. As in Exercise 1, SingStat writes a
+  nil or suppressed count as `-`. `to_count()` removes thousands separators, turns `-` into 0 and
+  converts the text to numbers.
+- The table has a row for the whole country, a row for each planning area (its name ends in " -
+  Total"), and a row for each subzone. The regular expression drops the row for the whole country
+  and the planning-area rows. One planning-area row is written "Changi- Total", without the space,
+  and `" ?- ?TOTAL$"` matches it as well.
+- The census of 2020 uses the subzones of the 2019 Master Plan, and the boundaries on this page are
+  those of the 2014 Master Plan. The census subzones "Lakeside (Business)" and "Lakeside (Leisure)"
+  are one subzone, "Lakeside", in the 2014 plan, and their counts are added together.
+- `AGED` is the sum of the six age bands from 65 upwards.
+:::
+
+```{r}
+#| echo: false
+aged_lost <- aged_sz |> filter(!SUBZONE_N %in% mpsz$SUBZONE_N, AGED > 0)
+```
+
+The census counts `r format(sum(aged_sz$AGED), big.mark = ",")` residents aged 65 and over. All
+but `r sum(aged_lost$AGED)` of them live in subzones whose names appear in the 2014 boundaries. The
+other `r sum(aged_lost$AGED)` residents live
+in `r paste(str_to_title(aged_lost$SUBZONE_N), collapse = " and ")`, two subzones of the 2019 plan
+with no subzone of the same name in the 2014 plan.
+
+```{r}
+aged_poly <- mpsz |>
+  left_join(aged_sz, by = "SUBZONE_N") |>
+  mutate(AGED = replace_na(AGED, 0)) |>
+  select(AGED)
+
+hexagons$aged <- st_interpolate_aw(aged_poly, hexagons,
+                                   extensive = TRUE)$AGED
+
+c(aged_in_hexagons = sum(hexagons$aged),
+  hexagons_without_aged = sum(hexagons$aged == 0))
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+st_interpolate_aw(x, to, extensive = TRUE)                # sf
+```
+
+- `st_interpolate_aw()` intersects the subzones with the hexagons, and assigns each piece the share
+  of the subzone's count equal to its share of the subzone's area. `extensive = TRUE` treats the
+  count as a total to be divided among the pieces. The pieces of each hexagon are then added up. The
+  result has one row per hexagon, in the order of `hexagons`.
+:::
+
+```{r}
+#| echo: false
+aged_share <- sum(hexagons$aged) / sum(aged_poly$AGED)
+aged_zero <- sum(hexagons$aged == 0)
+```
+
+The hexagons contain `r round(100 * aged_share, 1)`% of the residents aged 65 and over. The
+remaining residents live in the parts of subzones that the hexagons do not cover, on the offshore
+islands and along the coast. In total, `r format(aged_zero, big.mark = ",")` hexagons have no
+resident aged 65 and over, because they are in subzones with none: the water catchment areas, the
+airport, the industrial estates of the west and the port.
+
+With this demand, SAM divides by zero in those hexagons:
+
+```{r}
+p_aged <- hexagons$aged[ok]
+sam_aged <- ac(p_aged, n100, D, power = 2, family = "SAM")
+c(infinite = sum(is.infinite(sam_aged)),
+  hexagons_with_aged = sum(p_aged > 0))
+```
+
+KD2SFCA with the kernel of Cheng et al. (2016) does not divide by the demand of the hexagon itself.
+A hexagon with no demand adds nothing to the denominator of the first step. In the second step, it
+has the score of the centres around it. With a capacity of 1 for each centre, the score is the
+number of centres per resident aged 65 and over within 5 km, weighted by the kernel and multiplied
+by 10,000:
+
+```{r}
+kd_aged <- fca(p_aged, rep(1, length(n100)), D, "cheng") * 1e4
+
+c(national_ratio = 1e4 * length(n100) / sum(p_aged),
+  weighted_mean = weighted.mean(kd_aged, p_aged))
+```
+
+```{r}
+#| echo: false
+nat_ratio <- 1e4 * length(n100) / sum(p_aged)
+kd_const <- fca_scores$`KD2SFCA, Cheng et al.`
+R_const <- 1 / colSums(100 * fca_weights(D, "cheng"))
+R_aged <- 1 / colSums(p_aged * fca_weights(D, "cheng"))
+```
+
+The mean of the hexagon scores, weighted by demand, is `r round(nat_ratio, 2)` centres per 10,000
+residents aged 65 and over, which equals the national ratio, as Luo and Wang (2003) predict.
+
+```{r}
+#| echo: false
+nz <- kd_const > 0
+```
+
+The scores range from 0 to `r round(max(kd_aged), 1)` centres per 10,000 residents aged 65 and over.
+Among the planning areas with more than 5,000 residents aged 65 and over, the table lists the five
+with the lowest and the five with the highest weighted mean score:
+
+```{r}
+pa_summary <- tibble(planning_area = st_join(hexagons, mpsz["PLN_AREA_N"],
+                                             join = st_intersects,
+                                             largest = TRUE)$PLN_AREA_N[ok],
+                     aged = p_aged, acc = kd_aged) |>
+  group_by(planning_area) |>
+  summarise(per_10k_aged = weighted.mean(acc, aged),
+            aged_65 = round(sum(aged))) |>
+  filter(aged_65 > 5000) |>
+  arrange(per_10k_aged)
+
+bind_rows(head(pa_summary, 5), tail(pa_summary, 5)) |>
+  kable(digits = 2)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- Each hexagon is assigned to the planning area it overlaps most, as in section 4.6. The score of a
+  planning area is the mean of the scores of its hexagons, weighted by their residents aged 65 and
+  over. `head()` and `tail()` keep the five planning areas with the lowest scores and the five with
+  the highest.
+:::
+
+::: {.panel-tabset}
+#### Map
+
+```{r}
+#| label: aged-kd-map
+#| echo: false
+#| fig-height: 6
+pa_named <- bind_rows(head(pa_summary, 5), tail(pa_summary, 5))
+pa_lab <- label_areas(pa_named$planning_area) |>
+  left_join(pa_named, by = c(PLN_AREA_N = "planning_area")) |>
+  mutate(label = sprintf("%s %.2f", str_to_title(PLN_AREA_N), per_10k_aged))
+tm_shape(hexagons, bbox = mapex) +
+  tm_polygons(fill = "grey85", col_alpha = 0) +
+tm_shape(mutate(hex_ok, kd_aged = kd_aged)) +
+  tm_polygons(fill = "kd_aged",
+              fill.scale = tm_scale_intervals(
+                breaks = c(0, 0.5, 1, 1.5, 2, 3, 4, 6, 10, Inf) * nat_ratio / 2,
+                values = "brewer.rd_yl_bu", midpoint = nat_ratio),
+              fill.legend = tm_legend(title = "Centres per 10,000\nresidents aged 65+"),
+              col_alpha = 0) +
+tm_shape(eldercare) +
+  tm_dots(size = 0.15, fill = "black") +
+tm_shape(pa_lab) +
+  tm_borders(col = "black", lwd = 1.2) +
+  tm_labels("label", size = 0.7, fontface = "bold", bgcol = "white", bgcol_alpha = 0.85,
+            options = opt_tm_labels(point.label = TRUE)) +
+  tm_title("KD2SFCA (Cheng et al. kernel, 5 km), demand = residents aged 65 and over") +
+  tm_layout(frame = FALSE, legend.outside = TRUE)
+```
+
+#### Code
+
+```{r}
+#| ref.label: aged-kd-map
+#| eval: false
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- The labelled planning areas are the ten of the table, with the score of each.
+- The class breaks are multiples of the national ratio, from 0 to 5 times, with the midpoint of the
+  diverging palette at the national ratio. Red hexagons have a score below the national ratio, and
+  blue hexagons a score above it.
+:::
+:::
+
+The highest scores are in Bukit Merah, Kallang and Toa Payoh, near the city centre,
+with `r paste(round(rev(tail(pa_summary$per_10k_aged, 3)), 1), collapse = ", ")` centres per 10,000
+residents aged 65 and over. Sembawang, Pasir Ris and Bukit Panjang have scores
+of `r paste(round(head(pa_summary$per_10k_aged, 3), 2), collapse = ", ")`, below a third of the
+national ratio of `r round(nat_ratio, 2)`.
+
+The rank correlation between the scores under the census demand and the scores under a constant
+demand, over the `r format(sum(nz), big.mark = ",")` hexagons with a score above 0,
+is `r round(cor(kd_const[nz], kd_aged[nz], method = "spearman"), 2)`: the ranking of the hexagons is
+almost unchanged. The ratios $R_j$ of the centres change more, with a rank correlation
+of `r round(cor(R_const, R_aged, method = "spearman"), 2)` between the census demand and the
+constant demand. The ratio of a centre is its capacity divided by the weighted demand in its
+catchment, so a centre with many residents aged 65 and over within 5 km has a lower ratio under the
+census demand than under a constant demand.
+
+## Regional aggregation: one region per hexagon and population weights
+
+In section 3, the regions were compared with boxplots of the hexagon scores, after a join by
+`st_intersects` that counts a hexagon in every subzone it touches. Long (2017, section 4) describes
+the aggregation of accessibility to regions, and warns that the aggregation is subject to the
+ecological fallacy and the modifiable areal unit problem. Luo and Wang (2003) weight the average of
+the accessibility scores by population. Luo and Qi (2009, Table 1) count the population of the areas
+whose ratio is below the shortage standard of 1 physician per 3,500 residents. The readings contain
+no shortage standard for eldercare centres. The threshold in this exercise, half the national ratio
+of centres to residents aged 65 and over, is an extension of the course material.
+
+The question for this section is how the five regions compare when each hexagon counts once, and
+each resident aged 65 and over counts equally.
+
+```{r}
+hexagons$REGION_N <- st_join(hexagons, mpsz["REGION_N"],
+                             join = st_intersects, largest = TRUE)$REGION_N
+nrow(hexagons)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- `largest = TRUE` keeps, for each hexagon, only the subzone it overlaps most, so the join returns
+  one row per hexagon.
+:::
+
+```{r}
+eldercare$REGION_N <- st_join(eldercare, mpsz["REGION_N"])$REGION_N
+
+region_summary <- tibble(region = hexagons$REGION_N[ok],
+                         aged = p_aged,
+                         acc = kd_aged,
+                         reach = colSums(t(D) <= 5) > 0) |>
+  group_by(region) |>
+  summarise(hexagons = n(),
+            aged_65 = round(sum(aged)),
+            per_10k_aged = weighted.mean(acc, aged),
+            aged_no_centre_5km = sum(aged[!reach]) / sum(aged),
+            aged_below_half_national = sum(aged[acc < nat_ratio / 2]) / sum(aged)) |>
+  left_join(count(st_drop_geometry(eldercare), REGION_N, name = "centres"),
+            by = c(region = "REGION_N"))
+
+kable(region_summary, digits = 3)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- `reach` is `TRUE` for a hexagon with at least one centre within 5 km by road. `t()` transposes the
+  matrix, one column per hexagon, so `colSums(t(D) <= 5)` counts the centres within 5 km of each
+  hexagon.
+- `per_10k_aged` is the mean score of the region weighted by the residents aged 65 and over in each
+  hexagon. `aged_no_centre_5km` and `aged_below_half_national` are the shares of the region's
+  residents aged 65 and over who live in hexagons with no centre within 5 km, and in hexagons with a
+  score below half the national ratio.
+:::
+
+```{r}
+#| echo: false
+rs <- region_summary
+r_of <- \(r, v) rs[[v]][rs$region == r]
+```
+
+```{r}
+#| echo: false
+#| fig-height: 5.5
+region_map <- mpsz |>
+  group_by(REGION_N) |>
+  summarise() |>
+  left_join(region_summary, by = c(REGION_N = "region"))
+region_lab <- region_map |>
+  st_cast("MULTIPOLYGON") |>
+  st_cast("POLYGON") |>
+  mutate(area = st_area(geometry)) |>
+  group_by(REGION_N) |>
+  slice_max(area, n = 1) |>
+  ungroup() |>
+  mutate(label = sprintf("%s\n%.1f per 10,000\n%d centres",
+                         str_to_title(REGION_N), per_10k_aged, centres))
+tm_shape(region_map, bbox = mapex) +
+  tm_polygons(fill = "per_10k_aged",
+              fill.scale = tm_scale_intervals(
+                breaks = c(0, 0.5, 1, 1.5, 2, 3, 4, 6, 10, Inf) * nat_ratio / 2,
+                values = "brewer.rd_yl_bu", midpoint = nat_ratio),
+              fill.legend = tm_legend(title = "Centres per 10,000\nresidents aged 65+"),
+              col = "white", lwd = 2) +
+tm_shape(eldercare) +
+  tm_dots(size = 0.15, fill = "black") +
+tm_shape(region_lab) +
+  tm_text("label", size = 0.8, fontface = "bold", bgcol = "white", bgcol_alpha = 0.8) +
+  tm_title("Regions: mean score weighted by residents aged 65 and over") +
+  tm_layout(frame = FALSE, legend.outside = TRUE)
+```
+
+The Central Region has `r r_of("CENTRAL REGION", "centres")` of the 120 centres, and a score
+of `r round(r_of("CENTRAL REGION", "per_10k_aged"), 1)` centres per 10,000 residents aged 65 and
+over. In the other four regions, the score is
+between `r round(min(rs$per_10k_aged[rs$region != "CENTRAL REGION"]), 1)`
+and `r round(max(rs$per_10k_aged[rs$region != "CENTRAL REGION"]), 1)`, below the national ratio
+of `r round(nat_ratio, 2)`. The North-East Region has the lowest score,
+with `r format(r_of("NORTH-EAST REGION", "aged_65"), big.mark = ",")` residents aged 65 and over,
+the second-largest number of the five regions, and `r r_of("NORTH-EAST REGION", "centres")` centres.
+In the North Region, `r round(100 * r_of("NORTH REGION", "aged_no_centre_5km"), 1)`% of the
+residents aged 65 and over live more than 5 km by road from a centre,
+and `r round(100 * r_of("NORTH REGION", "aged_below_half_national"))`% live in hexagons with a score
+below half the national ratio. Both shares are the largest of the five regions.
+
+```{r}
+#| fig-height: 4.5
+tibble(region = hexagons$REGION_N[ok], aged = p_aged, acc = kd_aged) |>
+  filter(aged >= 1) |>
+  ggplot(aes(x = region, y = acc, weight = aged)) +
+  geom_boxplot(fill = "grey90") +
+  geom_hline(yintercept = nat_ratio, colour = "red", linetype = "dashed") +
+  scale_y_log10() +
+  labs(x = NULL, y = "centres per 10,000 residents aged 65+ (log scale)",
+       subtitle = "Hexagons with at least one resident aged 65+, weighted by that number; dashed line: national ratio") +
+  theme_minimal()
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- `aes(weight = aged)` weights each hexagon by its residents aged 65 and over, so that each hexagon
+  counts in proportion to its residents aged 65 and over. A hexagon with two such residents has a
+  weight of 2, and a hexagon in a housing estate a weight of several hundred.
+- `scale_y_log10()` puts the scores on a logarithmic scale. The 119 hexagons with residents aged 65
+  and over and a score of 0 have no logarithm, and are left out of the boxes.
+:::
+
+In this chart, each hexagon appears once. The regions are compared by one score, in centres per
+10,000 residents aged 65 and over. The dashed line marks the national ratio, which is the score
+every region would have if the centres were distributed in proportion to the residents aged 65 and
+over.
+
+# Reflection
+
+In chapter 17, accessibility to eldercare centres is modelled with three measures from one function.
+The three maps of Part 1 show the same pattern: high scores in the city centre and around each
+eldercare centre, and low scores in the west, the reservoir areas and the far east. In Part 2, I
+found that the scores depend on the distance matrix, the formula inside `ac()`, the size of the
+catchment and the demand.
+
+**The distance matrix has errors.** 159 hexagons have one distance to all 120 centres, the distance
+to the last centre in the file. One of them is within 5 km of every centre in the matrix. Under
+2SFCA, it was the highest-scoring hexagon until I removed the 159 hexagons. The other 158 hexagons
+score 0 under KD2SFCA in Part 1. Of the 159 hexagons, 94 hexagons have a centre within 5 km in a
+straight line, so their scores of 0 come from wrong distances. I found the errors by comparing the
+network distances with straight-line distances. Some valid distances are also much longer than the
+straight line: centre 370093 is 125 m from hexagon 2479 in a straight line and 5.6 km away by road.
+With a catchment of 2 or 3 km, its capacity is lost.
+
+**Three measures of `ac()` differ from the formulas on the slides and in the readings.** Its Hansen
+measure uses an exponential decay, where Hansen (1959) used a power of distance. When the capacities
+of the centres differ, the Hansen measure also multiplies the weights of one centre by the capacity
+of another centre. Its KD2SFCA kernel has no width. With distances in kilometres, the weights beyond
+2 km are below 0.02, so a catchment of 5 km has the effect of a catchment of about 2 km. The KD2SFCA
+scores also change with the unit of distance. Its SAM does not use `d0`. It uses the demand once,
+where the formula on slide 29 uses it twice. With a constant demand, its SAM equals a Hansen measure
+with the power function $1/d^2$, divided by the demand. None of these differences appears in the
+chapter's output. I found each difference by reading the source of `ac()`, which is about 50 lines
+long.
+
+**The floating catchment scores are a capacity per person.** The unit is the same for 2SFCA, E2SFCA
+and KD2SFCA. The mean of their scores weighted by demand equals the national ratio, a property
+derived by Luo and Wang (2003). Every computation of these methods with a catchment of 5 km or more
+satisfies the property. With a catchment of 2 or 3 km, one centre has no hexagon within its
+catchment, and the mean falls below the ratio. The Hansen and SAM scores have no unit. They can be
+compared only as ranks or ratios between hexagons, as Long (2017) says of gravity-based measures.
+
+**The demand changes the ratios of the centres more than the scores of the hexagons.** With the
+residents aged 65 and over in place of a constant demand of 100, the rank correlation is 0.98 for
+the hexagon scores and 0.64 for the centre ratios.
+
+**Regions under the census demand.** With the KD2SFCA kernel of Cheng et al. (2016), the score of
+every region outside the Central Region is below the national ratio. The North-East Region has the
+lowest score. In the North Region, 6.5% of the residents aged 65 and over have no centre within 5 km
+by road, the largest share of the five regions.
+
+**Limits.** Every centre has a capacity of 100, because the data have no measure of the size of a
+centre. Areal weighting spreads the residents of a subzone evenly over its area, including its parks
+and industrial land. The census is from 2020. The records of the centres were last updated in July
+2016, according to the field `FMEL_UPD_D` of the shapefile. The chapter gives no information on the
+road network used for `OD_Matrix.csv`. I took the catchment of 5 km and the kernels from the chapter
+and the readings, without data on how far residents aged 65 and over in Singapore travel to a
+centre.
+
+# References
+
+Course materials:
+
+- Kam, T.S. (2026). *Lesson 7: Modelling Geographic of Accessibility*. ISSS626 Geospatial Analytics
+  and Applications, SMU. Slide deck dated 12 October 2026.
+- Kam, T.S. (2026). [*R for Geospatial Data Science and Analytics*, Chapter 17: Modelling
+  Geographical Accessibility](https://r4gdsa.netlify.app/chap17.html).
+
+Assigned self-reading:
+
+- Long, J. (2017). "Modelling Accessibility". *The Geographic Information Science & Technology Body
+  of Knowledge* (3rd Quarter 2017 Edition), J.P. Wilson (ed.). DOI 10.22224/gistbok/2017.3.7.
+- Hansen, W.G. (1959). *Accessibility and Residential Growth*. Master of City Planning thesis,
+  Massachusetts Institute of Technology. Published in summary as "How Accessibility Shapes Land
+  Use", *Journal of the American Institute of Planners*, 25(2), 73-76.
+- Luo, W. and Wang, F. (2003). "Measures of spatial accessibility to health care in a GIS
+  environment: synthesis and a case study in the Chicago region". *Environment and Planning B:
+  Planning and Design*, 30(6), 865-884.
+- Luo, W. and Qi, Y. (2009). "An enhanced two-step floating catchment area (E2SFCA) method for
+  measuring spatial accessibility to primary care physicians". *Health & Place*, 15(4), 1100-1107.
+
+References listed in the Lesson 7 outline and used on this page:
+
+- Cheng, G., Zeng, X., Duan, L., Lu, X., Sun, H., Jiang, T. and Li, Y. (2016). "Spatial difference
+  analysis for accessibility to high level hospitals based on travel time in Shenzhen, China".
+  *Habitat International*, 53, 485-494.
+- Polzin, P., Borges, J. and Coelho, A. (2014). "An extended kernel density two-step floating
+  catchment area method to analyze access to health care". *Environment and Planning B: Planning and
+  Design*, 41(4), 717-735.
+- Rodrigue, J.-P., Comtois, C. and Slack, B. (2013). *The Geography of Transport Systems*, 3rd ed.
+  Routledge. Chapter 10, "The notion of accessibility", 322-328.
+
+Cited on the slides:
+
+- Kalogirou, S. and Foley, R. (2006). "Health, place and Hanly: Modelling accessibility to hospitals
+  in Ireland". *Irish Geography*, 39(1), 52-68.
+
+Methods referred to:
+
+- Dai, D. and Wang, F. (2011). "Geographic disparities in accessibility to food stores in southwest
+  Mississippi". *Environment and Planning B: Planning and Design*, 38, 659-677. Cited in Polzin et
+  al. (2014).
+
+Software and data:
+
+- Kalogirou, S. (2026). *SpatialAcc: Spatial Accessibility Measures*. R package version 0.1-6.
+- Department of Statistics Singapore (2021). *Census of Population 2020: Resident Population by
+  Planning Area/Subzone of Residence, Age Group and Sex*. data.gov.sg.
+
+# About this document
+
+Written and executed in Quarto with R `r getRversion()`,
+`SpatialAcc` `r packageVersion("SpatialAcc")`, `sf` `r packageVersion("sf")` and
+`tmap` `r packageVersion("tmap")`. All figures and tables are generated at render time from the data
+in `data/`, so nothing on this page is pasted in.
+
+I used AI assistance while working out the approach and the extensions in Part 2. The analysis was
+run and checked by me.
