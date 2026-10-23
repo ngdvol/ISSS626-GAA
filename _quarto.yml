@@ -7,6 +7,7 @@ project:
     - Hands-on_Ex/**/*.qmd
     - In-class_Ex/**/*.qmd
     - Take-home_Ex/**/*.qmd
+    - "!**/data/**"
 
 website:
   title: "ISSS626 Geospatial Analytics"
@@ -34,6 +35,8 @@ website:
             href: Hands-on_Ex/Hands-on_Ex06/Hands-on_Ex06.qmd
           - text: "Hands-on Ex 7: Modelling Geographical Accessibility"
             href: Hands-on_Ex/Hands-on_Ex07/Hands-on_Ex07.qmd
+          - text: "Hands-on Ex 8: Market Area Analysis with the Huff Model"
+            href: Hands-on_Ex/Hands-on_Ex08/Hands-on_Ex08.qmd
       - text: "In-class Exercises"
         menu:
           - text: "In-class Ex 4: Spatial Weights and Applications"
