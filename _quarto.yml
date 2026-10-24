@@ -45,6 +45,8 @@ website:
             href: In-class_Ex/In-class_Ex06/In-class_Ex06.qmd
           - text: "In-class Ex 7: Geographic Accessibility"
             href: In-class_Ex/In-class_Ex07/In-class_Ex07.qmd
+          - text: "In-class Ex 8: Market Area Analysis with the Huff Model"
+            href: In-class_Ex/In-class_Ex08/In-class_Ex08.qmd
       - text: "Take-home Exercises"
         menu:
           - text: "Take-home Ex 1: Technical Report"

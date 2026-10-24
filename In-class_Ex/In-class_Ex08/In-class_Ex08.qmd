@@ -1,0 +1,1483 @@
+---
+title: "In-class Exercise 8"
+subtitle: "Market Area Analysis with the Huff Model"
+author: "An Loc"
+date: "24 October 2026"
+date-modified: "last-modified"
+date-format: "D MMM YYYY"
+format:
+  html:
+    toc: true
+    toc-depth: 4
+    toc-expand: true
+    code-fold: false
+    code-copy: true
+    fig-width: 7
+    fig-height: 7
+knitr:
+  opts_chunk:
+    out.width: "100%"
+execute:
+  echo: true
+  eval: true
+  warning: false
+  message: false
+  freeze: true
+---
+
+# Overview
+
+In Exercise 7, accessibility to eldercare centres was measured from the distances between hexagons and centres. In this exercise, the distances between villages and stores are used to divide the residents of Taichung City, Taiwan, among the 28 stores of a fast-food franchise.
+
+On slide 6, the Huff model "estimates the probability of a consumer visiting a specific store by considering the store's attractiveness and the distance to it, relative to competing stores". The probabilities define the trade area of each store. Multiplied by the population of each village and summed over the villages, the probabilities give an estimate of the customers of each store.
+
+This exercise is a reproduction of r4gdsa chapter 18, which computes the Huff probabilities with the `MCI` package, maps the trade area of one store and compares the estimated customers of each store with its recorded sales.
+
+::: {.callout-note appearance="simple"}
+## Sources
+
+The hands-on exercise for Lesson 8 is this chapter:
+
+- [Chapter 18: Market Area Analysis for Retail and Service Locations using Huff model](https://r4gdsa.netlify.app/chap18.html)
+
+The Lesson 8 outline lists readings for before the lesson. Three are used here.
+
+| Reading | What it contributes | Used in |
+|----|----|----|
+| **Rodrigue**, *The Geography of Transport Systems*, A.18 "Spatial Interactions and the Gravity Model" | The general spatial interaction model $T_{ij} = f(V_i, W_j, S_{ij})$, with $S_{ij}$ the "friction of distance" | 3.1 |
+| **Rodrigue**, *The Geography of Transport Systems*, A.15 "Market Area Analysis" | Market areas as "ranges of probabilities that customers will attend specific locations (Huff's law)"; the two-store figure of slide 7 | 3.1 |
+| **Huff (1963)**, "A Probabilistic Analysis of Shopping Center Trade Areas" | The model, with selling space as attraction and travel time as cost; an exponent estimated from data | 3.1 |
+
+Of the eight references the outline also lists, the following is used on this page:
+
+| Reference | What it contributes | Used in |
+|----|----|----|
+| **Wieland (2017)**, "Market Area Analysis for Retail and Service Locations with MCI" | The functions of the `MCI` package | 3.1 |
+
+The other references are about gravity models of flows between regions (Haynes and Fotheringham, 2020; Farmer and Oshan, 2017; Flowerdew and Aitkin, 1982; Klapka et al., 2013; Yue et al., 2012) and spatial econometric models of origin-destination flows (Floch and Le Saout, 2018; LeSage and Pace, 2008; Tsutsumi and Tamesue, 2012). Chapter 18 has no flow data, so these references are background reading for this page. The outline's "All About R" section links `MCI` and `REAT`. `MCI` is used throughout. `REAT` also has a `huff()` function, which this page does not use.
+
+The Lesson 8 slide deck (the version of 24 October 2026) has 13 slides. Slide 5 gives Reilly's law. Slides 6 and 7 introduce the Huff model, and slides 8 and 9 give its utility and probability. Slides 10 and 11 give the expected customers and the market share of each store. Slides 12 and 13 give the MCI model.
+:::
+
+## Differences from the chapter
+
+|   | The chapter | This page | Why | Where |
+|----|----|----|----|----|
+| **Layer names** | `STORES_TN` and `VILLAGE_TN` in the text; four data sets | `STORES_TC`, `TOWN_TC` and `VILLAGE_TC`; five data sets | The code reads the `_TC` layers and the town layer | 2.2 |
+| **Overview map** | interactive (`tmap_mode("view")`) | static, with a title, north arrow, scale bar and grid | A static map shows the whole city at once | 2.3 |
+| **Store attraction** | `Store_size = 100` for every store | `Store_size = 1` for every store, in `stores_tidied` | The data have no store size. A constant cancels from the probabilities, and 1 does not look like a measured size | 2.5 |
+| **Household size** | not in the chapter | `village_tidied` with `hh_size` = `P_CNT` / `H_CNT` | The household count and the population are highly correlated; the ratio is not | 2.5 |
+| **Missing population** | five villages removed as missing values | the same five villages removed, identified as unassigned areas | The five areas have no village name and no population | 2.5.4 |
+| **Village point** | "centroid" in the text, `st_point_on_surface()` in the code | `st_point_on_surface()` | A point on the surface is always inside the village. The centroid and the point on the surface are up to 1.4 km apart | 3.2 |
+| **Selected store** | "TG" in the text, "BT" in the code | BT | The chapter's map and code are for BT | 3.5 |
+| **Join of the trade area** | `left_join()` without `by` | `by = "VILLCODE"` | The join key is written out | 3.5 |
+| **Scatter plot of sales** | histograms on the margins; Bayesian line of results below the chart | histograms kept; `bf.message = FALSE` | The lessons use p-values | 3.6 |
+| **Last code chunk** | `huff_share_wider`, a wide table of the probabilities, as the last step | used to find the most likely store of each village | The chapter creates the table and does not use it | 3.7 |
+
+::: {.callout-note collapse="false"}
+## Mapping of chapter 18 to this page
+
+| Chapter | This page |
+|----|----|
+| 18.1 Overview | 1 Overview |
+| 18.2 Getting Started | 2.1 Packages |
+| 18.3.1 Importing geospatial data | 2.3 Geospatial data |
+| 18.3.2 Importing aspatial data | 2.4 Aspatial data |
+| 18.4.1 to 18.4.4 Data Preparation | 2.5.1 to 2.5.4 |
+| 18.5 Computing Distance Matrix | 3.2 Distance matrix |
+| 18.6 Preparing Interaction Matrix | 3.3 Interaction matrix |
+| 18.7 Computing Huff model | 3.4 Huff probabilities |
+| 18.7.1 Trade area analysis for a single store | 3.5 Trade area of store BT |
+| 18.7.2 Store sales analysis | 3.6 Estimated customers of each store |
+:::
+
+# Getting started
+
+## Packages
+
+```{r}
+pacman::p_load(sf, MCI, tmap, ggstatsplot,
+               patchwork, knitr, tidyverse)
+tmap_options(component.autoscale = FALSE)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+``` r
+pacman::p_load(...)                                       # pacman
+tmap_options(component.autoscale)                         # tmap
+```
+
+- `p_load()` loads each package, and installs any that are missing.
+- `tmap_options(component.autoscale = FALSE)` stops `tmap` from shrinking the titles, legends and scale bars of the maps when they do not fit.
+
+| Package | Used for |
+|----|----|
+| `sf` | reading the shapefiles, points inside the villages, distances |
+| `MCI` | `huff.shares()`, `shares.total()` and `huff.lambda()` |
+| `tmap` | maps |
+| `ggstatsplot` | the scatter plot with a correlation test in section 3.6 |
+| `patchwork` | placing two charts side by side |
+| `knitr` | tables |
+| `tidyverse` | reading, joining and reshaping the tables (`readr`, `dplyr`, `tidyr`), and `ggplot2` charts |
+:::
+
+## The data
+
+The data sets are distributed with the exercise on eLearn, in the folder `data/`.
+
+| Data set | Format | Features | Contents |
+|----|----|----|----|
+| `STORES_TC` | ESRI shapefile | 28 points | stores of the franchise in Taichung City, with name, address and store code |
+| `TOWN_TC` | ESRI shapefile | 28 polygons | districts of Taichung City |
+| `VILLAGE_TC` | ESRI shapefile | 622 polygons | villages (里) of Taichung City, with the village code `VILLCODE` |
+| `pop2019.csv` | CSV | 625 rows | households (`H_CNT`), population (`P_CNT`), males (`M_CNT`) and females (`F_CNT`) of each village, December 2019 |
+| `Store_sales_data.csv` | CSV | 5,499 rows | number of bills and sales amount (currency not given) by store code and `POD code` |
+
+The folder also has `storeCD.csv` and a second store layer, `STORES_TC1`, which the chapter does not use. `storeCD.csv` gives each of the 28 stores the same `Capacity`, 50, with no unit. `STORES_TC1` has the 28 stores and a 29th point, "New Store", with the code `NS`.
+
+## Geospatial data
+
+### Reading the three layers
+
+```{r}
+#| results: hide
+stores <- st_read(dsn = "data/geospatial",
+                  layer = "STORES_TC")
+town <- st_read(dsn = "data/geospatial",
+                layer = "TOWN_TC")
+village <- st_read(dsn = "data/geospatial",
+                   layer = "VILLAGE_TC")
+```
+
+```{r}
+tibble(layer = c("stores", "town", "village"),
+       features = c(nrow(stores), nrow(town), nrow(village)),
+       geometry = c(as.character(st_geometry_type(stores, by_geometry = FALSE)),
+                    as.character(st_geometry_type(town, by_geometry = FALSE)),
+                    as.character(st_geometry_type(village, by_geometry = FALSE))),
+       epsg = c(st_crs(stores)$epsg, st_crs(town)$epsg, st_crs(village)$epsg)) |>
+  kable()
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+``` r
+st_read(dsn, layer)                                       # sf
+st_geometry_type(x, by_geometry = FALSE)                  # sf
+st_crs(x)$epsg                                            # sf
+tibble(...)                                               # tibble
+kable(x, digits)                                          # knitr
+```
+
+- `st_read()` reads the shapefile named by `layer` from the folder `dsn` into a simple feature data frame. `results: hide` suppresses the report that `st_read()` prints for each file.
+- `st_geometry_type(by_geometry = FALSE)` returns one geometry type for the whole layer.
+- `st_crs()$epsg` returns the EPSG code of the coordinate reference system.
+- `tibble()` builds a data frame with one row for each layer, and `kable()` prints it as a table. The other tables on this page are also printed with `kable()`. Where `digits` is given, it rounds the numbers.
+:::
+
+The three layers are in TWD97 / TM2 zone 121, EPSG:3826, a projected coordinate system in metres, so distances between the layers can be computed without a transformation.
+
+### Map of the layers
+
+The first map below shows the districts, the villages and the stores together. The second map shows the five central districts at a larger scale.
+
+:::: panel-tabset
+#### Map
+
+```{r}
+#| label: layers-map
+#| echo: false
+#| fig-height: 7
+town <- town |>
+  mutate(name = str_remove(TOWNENG, " District"),
+         name = recode(name, Zhong = "Central", W. = "West", E. = "East",
+                       N. = "North", S. = "South"))
+central <- c("Central", "East", "West", "North", "South")
+
+label_point <- function(d) {
+  grid <- st_make_grid(d, cellsize = 250, what = "centers")
+  grid <- grid[st_intersects(grid, d, sparse = FALSE)[, 1]]
+  room <- pmin(as.numeric(st_distance(grid, st_cast(st_geometry(d), "MULTILINESTRING"))),
+               as.numeric(apply(st_distance(grid, stores), 1, min)))
+  grid[which.max(room)]
+}
+town_label <- filter(town, !name %in% central)
+town_label <- st_sf(name = town_label$name,
+                    geometry = do.call(c, lapply(seq_len(nrow(town_label)),
+                                                 \(k) label_point(town_label[k, ]))))
+
+tm_shape(village) +
+  tm_polygons(fill = "grey92", col = "grey75", lwd = 0.3) +
+tm_shape(town) +
+  tm_borders(col = "steelblue", lwd = 1.2) +
+tm_shape(st_as_sfc(st_bbox(filter(town, name %in% central)))) +
+  tm_borders(col = "black", lwd = 1.5, lty = "dashed") +
+tm_shape(town_label) +
+  tm_text("name", size = 0.75, col = "steelblue4", fontface = "italic") +
+tm_shape(stores) +
+  tm_dots(fill = "red", size = 0.4) +
+  tm_text("Store_CD", size = 0.6, ymod = 0.7) +
+  tm_add_legend(type = "polygons", labels = "villages", fill = "grey92", col = "grey75") +
+  tm_add_legend(type = "lines", labels = "district boundaries", col = "steelblue") +
+  tm_add_legend(type = "lines", labels = "central districts\n(zoom map below)",
+                col = "black", lty = "dashed") +
+  tm_add_legend(type = "symbols", labels = "stores", fill = "red") +
+  tm_title("Districts, villages and stores of Taichung City") +
+  tm_compass(type = "8star", size = 2, position = c("right", "top")) +
+  tm_scalebar(position = c("left", "bottom")) +
+  tm_grid(alpha = 0.2) +
+  tm_layout(frame = TRUE, legend.outside = TRUE,
+            legend.outside.position = "right")
+
+zoom <- st_bbox(st_buffer(st_as_sfc(st_bbox(filter(town, name %in% central))), 500))
+zoom_label <- town |>
+  st_crop(zoom) |>
+  st_difference(st_union(st_buffer(st_crop(stores, zoom), 400))) |>
+  st_point_on_surface()
+
+tm_shape(village, bbox = zoom) +
+  tm_polygons(fill = "grey92", col = "grey75", lwd = 0.3) +
+tm_shape(town) +
+  tm_borders(col = "steelblue", lwd = 1.5) +
+tm_shape(zoom_label) +
+  tm_text("name", size = 0.9, col = "steelblue4", fontface = "italic") +
+tm_shape(stores) +
+  tm_dots(fill = "red", size = 0.6) +
+  tm_text("Store_CD", size = 0.8, ymod = 0.8) +
+  tm_add_legend(type = "polygons", labels = "villages", fill = "grey92", col = "grey75") +
+  tm_add_legend(type = "lines", labels = "district boundaries", col = "steelblue") +
+  tm_add_legend(type = "symbols", labels = "stores", fill = "red") +
+  tm_title("Central districts of Taichung City") +
+  tm_compass(type = "8star", size = 2, position = c("right", "bottom")) +
+  tm_scalebar(position = c("left", "bottom")) +
+  tm_grid(alpha = 0.2) +
+  tm_layout(frame = TRUE, legend.outside = TRUE,
+            legend.outside.position = "right")
+```
+
+#### Code
+
+```{r}
+#| ref.label: layers-map
+#| eval: false
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+``` r
+str_remove(string, pattern); recode(x, old = new)         # stringr, dplyr
+st_make_grid(x, cellsize, what = "centers")               # sf
+st_distance(x, y); st_cast(x, "MULTILINESTRING")          # sf
+st_bbox(x); st_as_sfc(bbox); st_buffer(x, dist)           # sf
+st_crop(x, bbox); st_difference(x, y)                     # sf
+tm_shape(shp, bbox) + tm_polygons(fill, col, lwd)         # tmap
+tm_borders(col, lwd, lty); tm_dots(fill, size)            # tmap
+tm_text(text, size, col, fontface, ymod)                  # tmap
+tm_add_legend(type, labels, fill, col, lty)               # tmap
+tm_compass(); tm_scalebar(); tm_grid()                    # tmap
+```
+
+- `TOWNENG` holds the English name of each district, such as "Xitun District". `str_remove()` drops " District", and `recode()` writes out the short names of the five central districts, such as "W." for West and "Zhong" for Central.
+- The five central districts cover 0.9 to 7.8 km² each, too small for a name on the map of the whole city. The dashed rectangle marks them on the first map, and the second map shows them at a larger scale.
+- `label_point()` finds a place for the name of a district. `st_make_grid()` puts points 250 m apart over the district, and the function keeps the point farthest from both the district boundary and the nearest store, so that the name lies inside its district and clear of the store labels.
+- For the second map, `st_crop()` cuts the districts to the rectangle, `st_difference()` removes 400 m around each store, and `st_point_on_surface()` places each name in the area that remains. `bbox = zoom` in the first `tm_shape()` sets the extent of the map to the rectangle.
+- Each `tm_shape()` starts a layer, and the layers are drawn in order: the villages in grey, the district boundaries in blue, the district names in blue italics, and the stores as red points.
+- `tm_text()` writes the store code of each point. `ymod` moves the label up so that it does not cover the point.
+- Each layer is drawn in one colour, so `tm_add_legend()` adds one legend entry for each layer.
+- `tm_compass()`, `tm_scalebar()` and `tm_grid()` add a north arrow, a scale bar and grid lines with coordinates in metres. `legend.outside = TRUE` places the legend outside the map frame: to the right of the map, or below it when the legend is too wide for the space on the right.
+:::
+::::
+
+```{r}
+#| echo: false
+store_town <- st_join(stores, town) |>
+  st_drop_geometry() |>
+  count(TOWNNAME)
+```
+
+The 28 stores are in `r nrow(store_town)` of the `r nrow(town)` districts of the town layer. Xitun District (西屯區) has `r store_town$n[store_town$TOWNNAME == "西屯區"]` stores, the most of any district. Six stores are in the five central districts: DT and TY in North District, MT in West District, FH and GS in South District, and JW in East District.
+
+## Aspatial data
+
+### Reading the two tables
+
+```{r}
+pop2019 <- read_csv("data/aspatial/pop2019.csv")
+store_sales <- read_csv("data/aspatial/Store_sales_data.csv")
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+``` r
+read_csv(file)                                            # readr
+```
+
+- `read_csv()` reads a CSV file into a tibble and sets the type of each column from its values. The village names in `pop2019.csv` are in Chinese characters and are read as text.
+:::
+
+### Store sales
+
+```{r}
+summary(store_sales)
+```
+
+```{r}
+#| echo: false
+n_codes <- n_distinct(store_sales$`Store Code`, na.rm = TRUE)
+n_tc_rows <- sum(store_sales$`Store Code` %in% stores$Store_CD)
+n_na_code <- sum(is.na(store_sales$`Store Code`))
+```
+
+The file has `r format(nrow(store_sales), big.mark = ",")` rows for `r n_codes` store codes. Of these rows, `r n_na_code` have no store code. Of the rows, `r n_tc_rows` belong to the 28 stores in Taichung. The other store codes are not in `STORES_TC` and drop out at the join in section 2.5.2. Each row gives the number of bills and the sales amount of one store for one `POD code`. The data come with no description of the `POD code`, the currency of the amounts or the period of the sales.
+
+## Data preparation
+
+### Aggregating store sales
+
+```{r}
+store_sales_aggre <- store_sales |>
+  group_by(`Store Code`) |>
+  summarise(Total_Bill = sum(Bills, na.rm = TRUE),
+            Total_Sales = sum(Amount, na.rm = TRUE))
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+``` r
+group_by(x, ...); summarise(...)                          # dplyr
+```
+
+- `group_by()` groups the rows by store code, and `summarise()` returns one row for each store code, with the sum of the bills and the sum of the sales amount over all its `POD code` rows.
+- The backticks around `` `Store Code` `` are needed because the column name contains a space.
+:::
+
+### Relational join
+
+```{r}
+stores <- stores |>
+  left_join(store_sales_aggre,
+            by = join_by(Store_CD == `Store Code`))
+
+stores_tidied <- stores |>
+  mutate(Store_size = 1) |>
+  st_drop_geometry()
+
+summary(stores)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+``` r
+left_join(x, y, by = join_by(a == b))                     # dplyr
+mutate(df, Store_size = 1); st_drop_geometry(df)          # dplyr, sf
+```
+
+- `left_join()` keeps the 28 rows of `stores` and adds the total bills and sales of the row of `store_sales_aggre` whose `Store Code` equals the store's `Store_CD`. The rows of `store_sales_aggre` with store codes that are not in `stores` are dropped.
+- `mutate()` adds the column `Store_size` with the value 1 for every store, and `st_drop_geometry()` removes the store points, so that `stores_tidied` is a plain data frame. `stores` keeps its points for the maps. `Store_size` is the attraction of the store in the Huff model of this exercise.
+- The data have no size for the stores, so the attraction is the same constant for every store. The chapter uses 100. The constant cancels from the probabilities of `huff.shares()`: with `Store_size = 1` and `Store_size = 100`, the 17,276 values of `p_ij` differ by less than $10^{-15}$. The value 1 does not look like a measured size, which 100 can.
+:::
+
+The summary has no missing values in `Total_Bill` and `Total_Sales`, so each of the 28 stores has sales records. In the currency of the file, which is not given, the total sales range from `r format(min(stores$Total_Sales), big.mark = ",")` for store `r stores$Store_CD[which.min(stores$Total_Sales)]` to `r format(max(stores$Total_Sales), big.mark = ",")` for store `r stores$Store_CD[which.max(stores$Total_Sales)]`.
+
+### Tidying the population table
+
+```{r}
+glimpse(pop2019)
+```
+
+```{r}
+glimpse(village)
+```
+
+The village code `V_ID` of `pop2019` has a hyphen after the district code, as in `66000110-002`. The code `VILLCODE` of `village` has the same digits without the hyphen.
+
+```{r}
+pop2019 <- pop2019 |>
+  mutate(V_ID = str_remove_all(V_ID, "-"))
+
+village <- village |>
+  left_join(pop2019,
+            by = join_by(VILLCODE == V_ID))
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+``` r
+str_remove_all(string, pattern)                           # stringr
+```
+
+- `str_remove_all()` deletes every hyphen from `V_ID`, so that `66000110-002` becomes `66000110002`, the form of `VILLCODE`.
+- `left_join()` keeps the 622 polygons of `village` and adds the population columns of the row of `pop2019` with the same code.
+:::
+
+::: {.callout-warning collapse="false" title="Running the join twice gives TOWN_ID.x and TOWN_ID.y"}
+`pop2019` has the columns `COUNTY_ID`, `TOWN_ID` and eight others. The first run of the join adds them to `village`, which has no column with these names (it has `COUNTYID` and `TOWNID`, without the underscore). After that, `village` has `TOWN_ID` already. If the chunk is run a second time, `pop2019` brings a second `TOWN_ID`, and `left_join()` keeps both and adds a suffix: `.x` for the column of the left table, `village`, and `.y` for the column of the right table, `pop2019`. The same happens to all ten population columns, so `P_CNT` becomes `P_CNT.x` and `P_CNT.y`, and the later code that uses `P_CNT` stops with an error.
+
+```{r}
+village_twice <- village |>
+  left_join(pop2019, by = join_by(VILLCODE == V_ID)) |>
+  st_drop_geometry()
+
+village_twice |>
+  select(VILLCODE, TOWN_ID.x, TOWN_ID.y, P_CNT.x, P_CNT.y) |>
+  head(3) |>
+  kable(col.names = c("village<br><code>VILLCODE</code>", "left table<br><code>TOWN_ID.x</code>",
+                      "right table<br><code>TOWN_ID.y</code>", "left table<br><code>P_CNT.x</code>",
+                      "right table<br><code>P_CNT.y</code>"),
+        align = "lrrrr", format = "html", escape = FALSE) |>
+  kableExtra::column_spec(2:3, background = "#FFF3B0", bold = TRUE)
+```
+
+The highlighted columns are the two `TOWN_ID` columns. They hold the same values, because the second join brings the same rows again. To repair the table, run the chunks again from reading `village`, and run the join once.
+:::
+
+### Missing values
+
+```{r}
+village |>
+  st_drop_geometry() |>
+  filter(is.na(P_CNT)) |>
+  select(VILLCODE, TOWNNAME, VILLNAME, NOTE) |>
+  kable()
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+``` r
+st_drop_geometry(x)                                       # sf
+filter(is.na(P_CNT))                                      # dplyr
+```
+
+- `st_drop_geometry()` removes the polygons, so that the table has the attributes only.
+- `filter(is.na(P_CNT))` keeps the villages with no matching row in `pop2019` at the join.
+:::
+
+In the chapter, the same five rows are found with `summary()`. The five polygons have no village name, a code ending in `S01` to `S03`, and the note 未編定村里, "unassigned village area". They are in the districts of Qingshui (清水區), Wuqi (梧棲區) and Longjing (龍井區).
+
+The join adds four count columns: households `H_CNT`, population `P_CNT`, males `M_CNT` and females `F_CNT`. The table shows them for the five villages.
+
+```{r}
+village |>
+  st_drop_geometry() |>
+  filter(is.na(P_CNT)) |>
+  select(VILLCODE, TOWNNAME, H_CNT, P_CNT, M_CNT, F_CNT) |>
+  kable(col.names = c("village<br><code>VILLCODE</code>", "district<br><code>TOWNNAME</code>",
+                      "households<br><code>H_CNT</code>", "population<br><code>P_CNT</code>",
+                      "males<br><code>M_CNT</code>", "females<br><code>F_CNT</code>"),
+        align = "llrrrr", format = "html", escape = FALSE) |>
+  kableExtra::column_spec(3:6, background = "#FFF3B0", bold = TRUE)
+```
+
+The four columns are missing in the same five villages, because a village with no row in `pop2019` has no count of any kind. The population is the count that the model uses, so one filter on `P_CNT` removes all five villages. A filter on each of the four columns would remove the same rows again and add nothing.
+
+A missing population is removed before the model is run. The estimated customers of a village are its probabilities multiplied by `P_CNT`, so a missing `P_CNT` gives a missing estimate, and the sum over the villages of a store is missing as well unless the missing values are skipped. The five polygons have no residents, so they are removed, as in the chapter.
+
+```{r}
+village <- village |>
+  filter(!is.na(P_CNT))
+
+nrow(village)
+```
+
+After the filter, the four columns are checked. Each returns `FALSE`, which means that no row has a missing value, although only `P_CNT` was used in the filter.
+
+```{r}
+village |>
+  st_drop_geometry() |>
+  summarise(across(c(H_CNT, P_CNT, M_CNT, F_CNT), ~ any(is.na(.x)))) |>
+  kable(col.names = c("<code>H_CNT</code>", "<code>P_CNT</code>", "<code>M_CNT</code>",
+                      "<code>F_CNT</code>"),
+        align = "cccc", format = "html", escape = FALSE) |>
+  kableExtra::column_spec(1:4, background = "#FFF3B0", bold = TRUE)
+```
+
+### Household size
+
+`village` has the household count `H_CNT`, the population `P_CNT`, and the counts of males and females. This step is not in the chapter. The next chunk keeps three columns, derives the household size, and drops the polygons, so that `village_tidied` is a plain data frame.
+
+```{r}
+village_tidied <- village |>
+  select(VILLCODE, H_CNT, P_CNT) |>
+  mutate(hh_size = P_CNT / H_CNT) |>
+  st_drop_geometry()
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+``` r
+select(df, ...); mutate(df, new = ...)                    # dplyr
+st_drop_geometry(x)                                       # sf
+```
+
+- `select()` keeps the village code, the household count and the population. The counts of males and females are left out, because the model does not use them.
+- `mutate()` adds `hh_size`, the population divided by the household count: the number of people in one household of the village.
+- `st_drop_geometry()` removes the polygons.
+:::
+
+```{r}
+village_tidied |>
+  head(3) |>
+  mutate(hh_size = round(hh_size, 2)) |>
+  kable(col.names = c("village<br><code>VILLCODE</code>", "households<br><code>H_CNT</code>",
+                      "population<br><code>P_CNT</code>", "household size<br><code>hh_size</code>"),
+        align = "lrrr", format = "html", escape = FALSE) |>
+  kableExtra::column_spec(2:3, background = "#FDE0DD", include_thead = TRUE) |>
+  kableExtra::column_spec(4, background = "#E5F5E0", bold = TRUE, include_thead = TRUE)
+```
+
+The pink columns are the counts that the chunk keeps. The green column is the derived variable.
+
+The reason is correlation. A village with more households has more people, and the household count and the population have a correlation of `r round(cor(village_tidied$H_CNT, village_tidied$P_CNT), 2)` in the `r nrow(village_tidied)` villages. If the MCI model is estimated by multiple linear regression, two explanatory variables that move together make the coefficients unstable. This is multicollinearity, one of the violations of the assumptions of OLS that Wieland (2017, p. 321) lists among the diagnostics for an MCI model. The household size has a correlation of `r round(cor(village_tidied$H_CNT, village_tidied$hh_size), 2)` with the household count and `r round(cor(village_tidied$P_CNT, village_tidied$hh_size), 2)` with the population, so it can replace the household count. The population stays for the size of the village, and the household size describes its composition.
+
+A principal component analysis would also remove the correlation, but its components are mixtures of the original variables, and a component such as "0.7 population + 0.7 households" cannot be explained for a village. The household size is a ratio with a meaning, people per household, so it is used instead.
+
+# Part 1: Chapter 18
+
+## The Huff model
+
+::: {.callout-tip collapse="false"}
+## The model of Huff (1963)
+
+In "Spatial Interactions and the Gravity Model", section A.18 of the Methods chapter of *The Geography of Transport Systems*, Rodrigue writes the general spatial interaction model as
+
+$$\begin{aligned}
+T_{ij} &= f(V_i, W_j, S_{ij}) \\
+&= f(\text{attributes of origin } i, \ \text{attributes of destination } j, \ \text{friction of distance from } i \text{ to } j)
+\end{aligned}$$
+
+where $T_{ij}$ is the interaction between origin $i$ and destination $j$. In the Huff model, the attribute of the destination is the attraction of a store and the friction is the distance to it.
+
+**Reilly's law (slide 5).** Reilly's law of retail gravitation (1931) finds the point of indifference between two locations, which divides their trading areas. On the slide, two locations are 75 km apart. If the two were equal, the point would lie halfway, 37.5 km from each. Location A has the larger population, so it draws more customers and the point lies 45.9 km from A.
+
+Huff (1963, p. 82) traces the breaking point to the "Law of Retail Gravitation" of Reilly (1929): a town between two cities divides its trade between them "in direct proportion to the populations of the two cities and in inverse proportion to the square of the distances". In the notation of Huff,
+
+$$\begin{aligned}
+\frac{B_a}{B_b} &= \frac{P_a}{P_b} \left(\frac{D_b}{D_a}\right)^2 \\[4pt]
+&= \frac{\text{population of city } a}{\text{population of city } b} \times \left(\frac{\text{distance from the town to city } b}{\text{distance from the town to city } a}\right)^2
+\end{aligned}$$
+
+where $B_a$ and $B_b$ are the proportions of the trade of the town attracted by cities $a$ and $b$. The breaking point is the town where $B_a = B_b$, which Huff calls "the .5 probability position between two cities". With the squared distance, the breaking point lies $D_{ab} / (1 + \sqrt{P_a /
+P_b})$ from city $b$, where $D_{ab}$ is the distance between the two cities. For the slide, with populations of 250,000 and 100,000, the point lies $75 / (1 + \sqrt{250{,}000 / 100{,}000}) = 29.1$ km from the smaller location and $75 - 29.1 = 45.9$ km from A. The figure of slide 7 divides by the distance itself, not by its square. Rodrigue (A.15) lists Reilly's law as the step at which "market size" entered market area analysis. Wieland (2017, p. 298) calls these early models deterministic: "each customer origin is assigned completely to one supply location".
+
+In the Huff model, the ratio of Reilly is extended to any number of stores, with a probability for each store. With two stores and $\lambda = 2$, the ratio $p_{ia} / p_{ib}$ of the Huff model below is the ratio $B_a / B_b$ of Reilly.
+
+Huff (1963, p. 86) gives the probability that consumers in statistical unit $i$ travel to shopping centre $j$ as the selling space of $j$ divided by a power of the travel time from $i$ to $j$, relative to the same ratio for every centre. On slides 8 and 9, in the notation of Wieland (2017, p. 299), the utility of store $j$ for the customers of origin $i$ is
+
+$$\begin{aligned}
+U_{ij} &= A_j^{\gamma} \, d_{ij}^{-\lambda} \\
+&= \frac{(\text{attraction of store } j)^{\gamma}}{(\text{distance from village } i \text{ to store } j)^{\lambda}}
+\end{aligned}$$
+
+and the probability that the customers of $i$ choose $j$ is
+
+$$\begin{aligned}
+p_{ij} &= \frac{U_{ij}}{\sum_{k=1}^{n} U_{ik}} = \frac{A_j^{\gamma} \, d_{ij}^{-\lambda}}{\sum_{k=1}^{n} A_k^{\gamma} \, d_{ik}^{-\lambda}} \\[6pt]
+&= \frac{(\text{attraction of store } j)^{\gamma} \div (\text{distance from village } i \text{ to store } j)^{\lambda}}{\text{sum over all } n \text{ stores } k \text{ of } (\text{attraction of store } k)^{\gamma} \div (\text{distance from village } i \text{ to store } k)^{\lambda}}
+\end{aligned}$$
+
+where $A_j$ is the attraction of store $j$, $d_{ij}$ is the distance or travel time, $\gamma$ is the weight of the attraction and $\lambda$ is the weight of the distance. The probabilities of one origin sum to 1.
+
+On slide 10, the expected number of customers from $i$ at $j$ is
+
+$$\begin{aligned}
+E_{ij} &= p_{ij} \, C_i \\
+&= (\text{probability of store } j \text{ for village } i) \times (\text{market potential of village } i)
+\end{aligned}$$
+
+where the market potential $C_i$ is the number of potential customers or the purchasing power in village $i$. On slide 11, the expected customers of store $j$ in the whole study area and the market share of store $j$ are
+
+$$\begin{aligned}
+T_j &= \sum_{i} E_{ij} \\
+&= \text{sum over all villages } i \text{ of the expected customers from } i \text{ at store } j
+\end{aligned}$$
+
+$$\begin{aligned}
+M_j &= \frac{T_j}{\sum_{k=1}^{n} T_k} \\[4pt]
+&= \frac{\text{expected customers of store } j}{\text{expected customers of all } n \text{ stores}}
+\end{aligned}$$
+
+The symbols of the formulas, and the columns that hold them in the code of this page:
+
+| Symbol | Meaning | Column |
+|----|----|----|
+| $i$ | origin: a village | `VILLCODE` |
+| $j$, $k$ | a store | `Store_CD` |
+| $n$ | number of stores: 28 |  |
+| $A_j$ | attraction of store $j$ | `Store_size` |
+| $d_{ij}$ | distance from village $i$ to store $j$, in metres | `distance` |
+| $\gamma$, $\lambda$ | weights of the attraction and the distance | arguments `gamma` and `lambda` |
+| $U_{ij}$ | utility of store $j$ for the residents of village $i$ | `U_ij` |
+| $p_{ij}$ | probability that a resident of village $i$ chooses store $j$ | `p_ij` |
+| $C_i$ | market potential of village $i$: its residents | `P_CNT` |
+| $E_{ij}$ | expected customers from village $i$ at store $j$ | computed in `shares.total()` |
+| $T_j$ | expected customers of store $j$ | `sum_E_j` |
+| $M_j$ | market share of store $j$ | `share_j` |
+
+`huff.shares()` of the `MCI` package writes the decay as $d_{ij}^{\lambda}$ with a negative `lambda`. Its default `lambda = -2` corresponds to $\lambda = 2$ in the formula above.
+
+**Example: one village and two stores.** Panel 1 uses the numbers of the figure on slide 7, which comes from "Market Area Analysis" (Rodrigue, A.15): a village halfway between store a, of size 250,000, and store b, of size 100,000, with the two stores 75 km apart. Panel 2 gives the two stores the same size and moves the village to 25 km from store a. The figure uses $\gamma = 1$ and $\lambda
+= 2$, the defaults of `huff.shares()`.
+
+```{r}
+#| echo: false
+#| fig-width: 7
+#| fig-height: 7.2
+#| out-width: "100%"
+hf_panel <- function(title, size_a, size_b, d_a) {
+  hf <- tibble(store = c("a", "b"), x = c(0, 75), size = c(size_a, size_b),
+               d = c(d_a, 75 - d_a)) |>
+    mutate(U = size / d^2,
+           p = U / sum(U),
+           U_lab = sprintf("%s ÷ %g² = %.0f", scales::comma(size), d, U))
+  hex <- tibble(t = seq(0, 300, by = 60) * pi / 180,
+                x = d_a + 2.6 * cos(t), y = 0.23 * sin(t))
+  bar <- tibble(xmin = d_a - 18 + c(0, 36 * hf$p[1]), xmax = d_a - 18 + c(36 * hf$p[1], 36))
+  ggplot() +
+    annotate("rect", xmin = -17, xmax = 92, ymin = -1.95, ymax = 2.55, fill = "white",
+             colour = "grey65") +
+    annotate("text", x = -15, y = 2.42, hjust = 0, vjust = 1, fontface = "bold", size = 4.3,
+             label = title) +
+    annotate("text", x = -15, y = 2.1, hjust = 0, vjust = 1, size = 3.8, colour = "grey25",
+             label = "utility = size ÷ distance², with distance in km") +
+    annotate("segment", x = 0, xend = 75, y = 0, yend = 0, colour = "grey60", linewidth = 1) +
+    annotate("segment", x = c(5, d_a + 3.5), xend = c(d_a - 3.5, 70), y = 0.55, yend = 0.55,
+             colour = "grey40", arrow = arrow(ends = "both", length = unit(0.08, "in"))) +
+    annotate("text", x = c(d_a / 2 + 0.75, (d_a + 75) / 2 - 0.75), y = 0.8,
+             label = paste(hf$d, "km"), size = 4) +
+    geom_rect(data = bar, aes(xmin = xmin, xmax = xmax, ymin = 1.25, ymax = 1.65),
+              fill = c("#3182bd", "#9ecae1"), colour = "white") +
+    annotate("text", x = c((bar$xmin[1] + bar$xmax[1]) / 2, bar$xmax[2] + 1.5), y = 1.45,
+             hjust = c(0.5, 0), size = 4, colour = c("white", "black"),
+             label = sprintf("%s %.2f", hf$store, hf$p)) +
+    annotate("text", x = d_a, y = 1.82, size = 3.8, colour = "grey25",
+             label = "share of the village's customers") +
+    geom_point(data = hf, aes(x, 0, size = size, fill = store), shape = 21, colour = "grey30") +
+    geom_text(data = hf, aes(x, 0, label = store), size = 4.5, fontface = "bold",
+              colour = c("white", "black")) +
+    geom_polygon(data = hex, aes(x, y), fill = "#a1d99b", colour = "grey30") +
+    annotate("text", x = d_a, y = -0.45, label = "village", size = 3.8) +
+    geom_text(data = hf, aes(x, -0.75, label = paste("store", store, "\nsize", scales::comma(size))),
+              size = 3.8, lineheight = 0.9) +
+    geom_text(data = hf, aes(x, -1.3, label = paste("utility", U_lab)), size = 3.8, colour = "grey25") +
+    annotate("text", x = -15, y = -1.72, hjust = 0, size = 3.8, colour = "grey25",
+             label = sprintf("share of a = %.0f ÷ (%.0f + %.0f) = %.2f,   share of b = %.0f ÷ %.0f = %.2f",
+                             hf$U[1], hf$U[1], hf$U[2], hf$p[1],
+                             hf$U[2], sum(hf$U), hf$p[2])) +
+    scale_fill_manual(values = c(a = "#3182bd", b = "#9ecae1"), guide = "none") +
+    scale_size_area(max_size = 19, limits = c(0, 250000), guide = "none") +
+    coord_cartesian(xlim = c(-17, 92), ylim = c(-1.95, 2.55), expand = FALSE) +
+    theme_void()
+}
+
+hf_panel("1. Village halfway, store a 2.5 times as large", 250000, 100000, 37.5) /
+  hf_panel("2. Stores of the same size, village closer to a", 100000, 100000, 25)
+```
+
+In panel 1, the two distances are equal, so $37.5^2$ cancels from the fraction and the shares are in the ratio of the sizes: $250{,}000 \div 350{,}000 = 0.71$. Rodrigue's figure divides by the distance itself ($\lambda = 1$) and gives the same 0.71, because the exponent has no effect when the two distances are equal. In panel 2, the two sizes are equal, so the size cancels and the shares depend on the distances only: store a, at half the distance of store b, has four times the utility of store b. Every store in chapter 18 has the same size, so the model of this exercise works as in panel 2.
+:::
+
+## Distance matrix
+
+```{r}
+village_center <- st_point_on_surface(village)
+distmat <- st_distance(village_center, stores)
+
+dim(distmat)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+``` r
+st_point_on_surface(x)                                    # sf
+st_distance(x, y)                                         # sf
+```
+
+- `st_point_on_surface()` returns one point for each village, always inside the polygon. For a village with a concave or multi-part shape, the centroid can be outside the polygon.
+- `st_distance()` returns a matrix of straight-line distances in metres, with one row for each village point and one column for each store.
+:::
+
+`st_distance()` measures the distance between two points without ambiguity. A village is a polygon, a store is a point, and a polygon has no single position. Each village is therefore reduced to one point first. The table shows the geometry type of each layer, for three villages and for Yong'an Village, the village of the map below.
+
+```{r}
+dm_rows <- c(1:3, which(village$VILLCODE == "66000060018"))
+village_ctr <- st_centroid(village)
+ctr_inside <- diag(st_intersects(village_ctr[dm_rows, ], village[dm_rows, ], sparse = FALSE))
+
+tibble(VILLCODE = village$VILLCODE[dm_rows],
+       village = as.character(st_geometry_type(village))[dm_rows],
+       village_center = as.character(st_geometry_type(village_center))[dm_rows],
+       inside = ctr_inside) |>
+  mutate(inside = ifelse(inside, "inside", "outside")) |>
+  kable(col.names = c("village \\(i\\)<br><code>VILLCODE</code>", "village layer<br><code>village</code>",
+                      "village point<br><code>village_center</code>",
+                      "centroid of the polygon<br><code>st_centroid()</code>"),
+        align = "llll", format = "html", escape = FALSE) |>
+  kableExtra::column_spec(3, background = "#FFF3B0", bold = TRUE) |>
+  kableExtra::column_spec(4, background = "#FDE0DD")
+```
+
+The `village` layer holds polygons and `stores` holds points, so `st_distance(village, stores)` would measure from the nearest edge of each polygon, and a store inside a village would be at distance 0. `village_center` holds one point for each village, and the distances run from point to point.
+
+The usual choice for the point of a polygon is the centroid, the centre of mass of its shape. The last column shows its weakness: the centroid of a polygon with a concave or an odd shape can fall outside the polygon, as for Yong'an Village. A distance from a point in a neighbouring village is wrong for the residents of this one. `st_point_on_surface()` returns a point that is always inside the polygon, so it is used here. The problem is larger for shapes such as the footprint of a block shaped like a U, as some HDB blocks are in Singapore. The centroid of a U lies in the gap between its arms, outside the building, unless it is forced inside.
+
+```{r}
+#| echo: false
+gap_m <- as.numeric(st_distance(village_center, st_centroid(village),
+                                by_element = TRUE))
+n_outside <- sum(!diag(st_intersects(st_centroid(village), village, sparse = FALSE)))
+gap_yongan <- gap_m[village$VILLCODE == "66000060018"]
+```
+
+In the text of chapter 18, the village points are called centroids. The median distance between the point on the surface and the centroid of a village is `r round(median(gap_m))` m. The largest distance is `r format(round(max(gap_m)), big.mark = ",")` m. In `r n_outside` villages, the centroid lies outside the village. The map below shows one of them, Yong'an Village (永安里) in Xitun District, where the two points are `r round(gap_yongan)` m apart.
+
+:::: panel-tabset
+#### Map
+
+```{r}
+#| label: centroid-map
+#| echo: false
+#| fig-height: 5.5
+dm_v <- filter(village, VILLCODE == "66000060018")
+dm_pts <- st_sf(point = c("centroid", "point on the surface"),
+                geometry = c(st_geometry(st_centroid(dm_v)),
+                             st_geometry(st_point_on_surface(dm_v))))
+dm_box <- st_bbox(st_buffer(dm_v, 600))
+
+tm_shape(village, bbox = dm_box) +
+  tm_polygons(fill = "grey95", col = "grey75", lwd = 0.5) +
+tm_shape(dm_v) +
+  tm_polygons(fill = "#a1d99b", col = "grey20", lwd = 1.5) +
+tm_shape(dm_pts) +
+  tm_symbols(shape = "point", fill = "point", size = 1.2, col = "grey20",
+             fill.scale = tm_scale_categorical(values = c("#e6550d", "#3182bd")),
+             shape.scale = tm_scale_categorical(values = c(4, 21)),
+             fill.legend = tm_legend(title = ""), shape.legend = tm_legend_combine("fill")) +
+  tm_add_legend(type = "polygons", labels = "village Yong'an", fill = "#a1d99b",
+                col = "grey20") +
+  tm_title("Centroid and point on the surface of one village") +
+  tm_compass(type = "8star", size = 2, position = c("right", "top")) +
+  tm_scalebar(position = c("left", "bottom")) +
+  tm_grid(alpha = 0.2) +
+  tm_layout(frame = TRUE, legend.outside = TRUE, legend.outside.position = "right")
+```
+
+#### Code
+
+```{r}
+#| ref.label: centroid-map
+#| eval: false
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+``` r
+st_centroid(x); st_point_on_surface(x)                    # sf
+tm_symbols(shape, fill, size, fill.scale, shape.scale)    # tmap
+tm_scale_categorical(values); tm_legend_combine(x)        # tmap
+```
+
+- `dm_pts` holds the two points of Yong'an Village: its centroid and its point on the surface.
+- `bbox` in the first `tm_shape()` sets the extent of the map to the village with a margin of 600 m.
+- `tm_symbols()` draws the centroid as a cross and the point on the surface as a blue circle. `tm_legend_combine("fill")` puts the shape and the colour of each point in one legend entry.
+:::
+::::
+
+The centroid is the centre of mass of the polygon. Yong'an Village is a narrow strip to the west and a wider block to the east, and the centre of mass of the two falls between them, outside the village. `st_point_on_surface()` returns a point inside the polygon.
+
+Each row of `distmat` holds the distances from one village to the 28 stores. The map below shows the row of Pingxin Village (平心里) in Beitun District, the village in which store BT is located.
+
+:::: panel-tabset
+#### Map
+
+```{r}
+#| label: distance-row-map
+#| echo: false
+#| fig-height: 7
+dm_k <- which(village$VILLCODE == "66000080035")
+dm_lines <- st_sf(Store_CD = stores$Store_CD,
+                  distance_km = as.numeric(distmat[dm_k, ]) / 1000,
+                  geometry = st_nearest_points(village_center[dm_k, ], stores))
+
+tm_shape(village) +
+  tm_polygons(fill = "grey95", col = "grey85", lwd = 0.3) +
+tm_shape(town) +
+  tm_borders(col = "steelblue", lwd = 0.8) +
+tm_shape(dm_lines) +
+  tm_lines(col = "distance_km", lwd = 2,
+           col.scale = tm_scale_intervals(breaks = c(0, 2, 5, 10, 15, 25),
+                                          labels = c("under 2", "2 to 5", "5 to 10",
+                                                     "10 to 15", "15 and over"),
+                                          values = c("#440154", "#31688e", "#21918c", "#35b779", "#90d743")),
+           col.legend = tm_legend(title = "distance (km)")) +
+tm_shape(stores) +
+  tm_dots(fill = "black", size = 0.25) +
+  tm_text("Store_CD", size = 0.6, ymod = 0.6) +
+tm_shape(village_center[dm_k, ]) +
+  tm_symbols(shape = 23, fill = "#e6550d", col = "grey20", size = 0.9) +
+  tm_add_legend(type = "symbols", labels = "village Pingxin", shape = 23,
+                fill = "#e6550d", col = "grey20") +
+  tm_add_legend(type = "symbols", labels = "stores", fill = "black") +
+  tm_title("Distances from one village to the 28 stores: one row of distmat") +
+  tm_compass(type = "8star", size = 2, position = c("right", "top")) +
+  tm_scalebar(position = c("left", "bottom")) +
+  tm_grid(alpha = 0.2) +
+  tm_layout(frame = TRUE, legend.outside = TRUE, legend.outside.position = "right")
+```
+
+#### Code
+
+```{r}
+#| ref.label: distance-row-map
+#| eval: false
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+``` r
+st_nearest_points(x, y)                                   # sf
+tm_lines(col, lwd, col.scale, col.legend)                 # tmap
+tm_scale_intervals(breaks, labels, values)                # tmap
+```
+
+- `dm_k` is the row number of Pingxin Village in `village` and in `distmat`.
+- `st_nearest_points()` returns a straight line from the village point to each store. `dm_lines` holds the 28 lines with the distances of row `dm_k` of `distmat` in kilometres.
+- `tm_lines()` colours each line by its distance class. `tm_scale_intervals()` sets the class breaks at 2, 5, 10 and 15 km.
+:::
+::::
+
+```{r}
+#| echo: false
+dm_row <- arrange(st_drop_geometry(dm_lines), distance_km)
+```
+
+The distances in the row of Pingxin Village run from `r round(dm_row$distance_km[1], 1)` km to store `r dm_row$Store_CD[1]` to `r round(dm_row$distance_km[28], 1)` km to store `r dm_row$Store_CD[28]`. Each of the `r nrow(village)` rows of `distmat` holds 28 distances in the same way.
+
+```{r}
+rownames(distmat) <- village$VILLCODE
+colnames(distmat) <- stores$Store_CD
+
+distmat_long <- distmat |>
+  as.data.frame() |>
+  rownames_to_column(var = "VILLCODE") |>
+  pivot_longer(cols = -VILLCODE,
+               names_to = "Store_CD",
+               values_to = "distance") |>
+  mutate(distance = as.numeric(distance))
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+``` r
+rownames(x) <- ...; colnames(x) <- ...                    # base R
+rownames_to_column(df, var)                               # tibble
+pivot_longer(df, cols, names_to, values_to)               # tidyr
+```
+
+- `rownames()` and `colnames()` set the village codes as the row names of the matrix and the store codes as its column names.
+- `as.data.frame()` turns the matrix into a data frame with one column for each store, and `rownames_to_column()` moves the row names into a column `VILLCODE`.
+- `pivot_longer()` turns the 28 store columns into rows: one row for each pair of village and store, with the store code in `Store_CD` and the distance in `distance`.
+- `as.numeric()` removes the unit "m" that `st_distance()` attaches to the distances.
+:::
+
+`as.numeric()` is a safety step. A matrix can hold values of any kind, and `st_distance()` returns numbers that carry the unit "m", so the column after `pivot_longer()` is not yet a plain number column. The table shows the class and the first value of `distance` before and after the step.
+
+```{r}
+dm_before <- distmat |>
+  as.data.frame() |>
+  rownames_to_column("VILLCODE") |>
+  pivot_longer(cols = -VILLCODE, names_to = "Store_CD", values_to = "distance")
+
+tibble(stage = c("after <code>pivot_longer()</code>", "after <code>as.numeric()</code>"),
+       class = c(class(dm_before$distance), class(as.numeric(dm_before$distance))),
+       value = c(format(dm_before$distance[1]), format(as.numeric(dm_before$distance[1])))) |>
+  kable(col.names = c("step", "class of <code>distance</code>", "first value"),
+        align = "lll", format = "html", escape = FALSE) |>
+  kableExtra::column_spec(2, background = "#FFF3B0", bold = TRUE, include_thead = TRUE) |>
+  kableExtra::column_spec(3, background = "#E5F5E0", include_thead = TRUE)
+```
+
+Before the step, `distance` has the class `units` and each value carries "\[m\]". After the step, it is a plain `numeric` column. The numbers are the same, so the step changes no result here. It is kept because the content of a matrix is not visible at a glance: a column that looks like numbers can hold text or values with a unit, and `huff.shares()` needs plain numbers in `distance`.
+
+The order of the arguments of `st_distance(village_center, stores)` decides what the rows are: the first argument gives the rows and the second the columns. With the villages first, each row is a village $i$, the origin, and each column is a store $j$, the destination. With the stores first, the result is the same matrix turned on its side, with a store in each row, and the later steps would have to be written for that layout. In `distmat`, each row is a village $i$, each column is a store $j$, and each cell holds the distance $d_{ij}$ in metres. The table below shows the first three rows and the first four columns.
+
+```{r}
+#| echo: false
+show_rows <- function(df, rows) {
+  out <- df[rows, , drop = FALSE] |>
+    mutate(across(everything(), as.character)) |>
+    mutate(row = format(rows, big.mark = ",", trim = TRUE), .before = 1)
+  gap <- out[1, ]
+  gap[1, ] <- as.list(rep("...", ncol(out)))
+  breaks <- c(which(diff(rows) > 1), if (max(rows) < nrow(df)) length(rows))
+  for (g in rev(breaks)) out <- bind_rows(out[seq_len(g), ], gap, out[-seq_len(g), ])
+  out
+}
+comma0 <- function(x) format(round(x), big.mark = ",", trim = TRUE)
+
+dm_corner <- distmat[1:3, 1:4] |>
+  units::drop_units() |>
+  as.data.frame() |>
+  mutate(across(everything(), comma0)) |>
+  rownames_to_column("village $i$")
+dm_show <- bind_rows(dm_corner, as.list(set_names(rep("...", 5), names(dm_corner)))) |>
+  mutate(`...` = "...")
+dm_show |>
+  kable(col.names = c("village \\(i\\)", paste0("<code>", names(dm_show)[-1], "</code>")),
+        align = "lrrrrr", format = "html", escape = FALSE) |>
+  kableExtra::row_spec(0, background = "#D6E8F7") |>
+  kableExtra::column_spec(1, background = "#FFF3B0", bold = TRUE, include_thead = TRUE)
+```
+
+`pivot_longer()` turns each cell of `distmat` into a row of `distmat_long`. The four cells of the first row of `distmat` become rows 1 to 4:
+
+```{r}
+#| echo: false
+distmat_long |>
+  mutate(distance = comma0(distance)) |>
+  show_rows(1:4) |>
+  kable(col.names = c("row", "village \\(i\\)<br><code>VILLCODE</code>", "store \\(j\\)<br><code>Store_CD</code>",
+                      "distance \\(d_{ij}\\) (m)<br><code>distance</code>"),
+        align = "lllr", format = "html", escape = FALSE) |>
+  kableExtra::column_spec(2, background = "#FFF3B0", bold = TRUE, include_thead = TRUE) |>
+  kableExtra::column_spec(3, background = "#D6E8F7", bold = TRUE, include_thead = TRUE) |>
+  kableExtra::column_spec(4, background = "#E5F5E0", include_thead = TRUE)
+```
+
+Yellow marks the village codes and blue marks the store codes. In `distmat` they are the row names and the column names, so the distance in a cell is identified by the pair of names around it. In `distmat_long` they are two ordinary columns, so that each row carries its own village code, store code and distance. The rows of `distmat_long` follow the order of `village`, village by village, and `village` is the data frame that holds the other information of each village, such as `P_CNT`. A later join by `VILLCODE` therefore adds the population to the right rows.
+
+## Interaction matrix
+
+`huff.shares()` takes one table, the interaction matrix of Wieland (2017, p. 300), with one row for each pair of origin and store and the columns for the attraction and the distance.
+
+```{r}
+interaction_matrix <- distmat_long |>
+  left_join(stores_tidied |>
+              select(Store_CD, Store_size),
+            by = "Store_CD") |>
+  relocate(distance, .after = last_col())
+
+summary(interaction_matrix)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+``` r
+select(df, ...); relocate(df, x, .after = last_col())     # dplyr
+```
+
+- The join adds the `Store_size` of each store to its rows. `stores_tidied` has no store points, so the result is a plain data frame.
+- `relocate()` moves `distance` to the last column. The column order does not matter to `huff.shares()`, which finds the columns by name.
+:::
+
+`relocate()` changes the position of one column only. The table lists the column names of the matrix in order, before and after the step, with `distance` highlighted.
+
+```{r}
+cols_before <- names(left_join(distmat_long, select(stores_tidied, Store_CD, Store_size),
+                               by = "Store_CD"))
+cols_after <- names(interaction_matrix)
+
+mark <- function(x) kableExtra::cell_spec(paste0("<code>", x, "</code>"), format = "html", escape = FALSE,
+                                          background = ifelse(x == "distance", "#E5F5E0", "white"),
+                                          bold = x == "distance")
+tibble(step = c("after the join", "after <code>relocate()</code>"),
+       c1 = mark(c(cols_before[1], cols_after[1])), c2 = mark(c(cols_before[2], cols_after[2])),
+       c3 = mark(c(cols_before[3], cols_after[3])), c4 = mark(c(cols_before[4], cols_after[4]))) |>
+  kable(col.names = c("step", "column 1", "column 2", "column 3", "column 4"),
+        align = "lcccc", format = "html", escape = FALSE)
+```
+
+The join adds `Store_size` after `distance`. With `relocate()`, `distance` is the last column, so the two inputs of the utility, `Store_size` and `distance`, stand together at the end of the table, and the last column is the one to look at when the matrix is checked. The names are the same in both rows, so `huff.shares()` is not affected by the order.
+
+The matrix has `r format(nrow(interaction_matrix), big.mark = ",")` rows, one for each of the `r nrow(village)` villages paired with each of the 28 stores. The shortest distance is `r round(min(interaction_matrix$distance))` m, and the longest distance is `r format(round(max(interaction_matrix$distance) / 1000, 1), nsmall = 1)` km.
+
+Before the model is run, the inputs of `huff.shares()` are checked for missing values and zeros. A missing `distance` or `Store_size` makes `U_ij` missing, and then `p_ij` is missing for every store of that village. A `distance` of zero gives an infinite $U_{ij}$, because the distance has a negative exponent. A zero `Store_size` gives a utility of zero, so the store gets no customers.
+
+```{r}
+tibble(input = c("Store_size", "distance"),
+       missing = c(sum(is.na(interaction_matrix$Store_size)),
+                   sum(is.na(interaction_matrix$distance))),
+       zero = c(sum(interaction_matrix$Store_size == 0),
+                sum(interaction_matrix$distance == 0)))
+```
+
+The table has no missing values and no zeros. The shortest distance is above zero, and `Store_size` is 1 in every row. The same holds for `Total_Sales` of `stores_tidied` and for `P_CNT` of the villages, which are used for the estimated customers: the smallest values are `r format(min(stores_tidied$Total_Sales), big.mark = ",")` and `r min(village$P_CNT)`.
+
+The rows are ordered by village. Rows 1 to 28 pair the first village, Jianxing Village (建興里) in Dajia District, with each of the 28 stores, and row 29 starts the second village. The table below shows six of the rows.
+
+```{r}
+#| echo: false
+interaction_matrix |>
+  mutate(Store_size = as.character(Store_size),
+         distance = comma0(distance)) |>
+  show_rows(c(1:3, 28, 29, nrow(interaction_matrix))) |>
+  kable(col.names = c("row", "village \\(i\\)<br><code>VILLCODE</code>",
+                      "store \\(j\\)<br><code>Store_CD</code>",
+                      "attraction \\(A_j\\)<br><code>Store_size</code>",
+                      "distance \\(d_{ij}\\) (m)<br><code>distance</code>"),
+        align = "lllrr", format = "html", escape = FALSE) |>
+  kableExtra::column_spec(2, background = "#FFF3B0", bold = TRUE, include_thead = TRUE) |>
+  kableExtra::column_spec(3, background = "#D6E8F7", bold = TRUE, include_thead = TRUE) |>
+  kableExtra::column_spec(4, background = "#FDE0DD", bold = TRUE, include_thead = TRUE) |>
+  kableExtra::column_spec(5, background = "#E5F5E0", include_thead = TRUE)
+```
+
+The three columns that `distmat_long` already had keep their colours from section 3.2: village code in yellow, store code in blue and distance in green. The pink column is the one that the join adds. For each row, `left_join()` looks up the store code in `stores_tidied` and copies the `Store_size` of that store. The lookup depends on the store only, so a store has the same `Store_size` in every village, and the 28 rows of one village differ in the store and the distance. The matrix has no sales column: `Total_Sales` stays in `stores_tidied`, and section 3.6 compares it with the estimated customers of each store.
+
+Each row holds one pair of village and store, with the two inputs of the utility $U_{ij}$ of section 3.1: the attraction $A_j$ and the distance $d_{ij}$. `huff.shares()` computes one probability $p_{ij}$ for each row.
+
+## Huff probabilities
+
+```{r}
+huff_share <- huff.shares(interaction_matrix,
+                          "VILLCODE", "Store_CD",
+                          "Store_size", "distance")
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+``` r
+huff.shares(huffdataset, origins, locations, attrac, dist,
+            gamma = 1, lambda = -2)                       # MCI
+```
+
+- The arguments name the columns of the interaction matrix: origins, locations, attraction and distance.
+- With the defaults `gamma = 1` and `lambda = -2`, `huff.shares()` computes $U_{ij} = A_j \,
+  d_{ij}^{-2}$ for each row and writes it to `U_ij`. It writes the sum of $U_{ij}$ over the 28 stores of each village to `sum_U_ij`, and the probability $p_{ij}$ to `p_ij`.
+:::
+
+```{r}
+huff_share |>
+  group_by(VILLCODE) |>
+  summarise(sum_p = sum(p_ij)) |>
+  pull(sum_p) |>
+  range()
+```
+
+The probabilities of each village sum to 1, as in the formula of section 3.1.
+
+`huff_share` is the interaction matrix with three new columns. `huff.shares()` also sorts the rows by village code and store code, so the first village of `huff_share` is Jiguang Village (繼光里) in Central District, and its first store is BT. The table below shows five of the rows.
+
+```{r}
+#| echo: false
+huff_share |>
+  mutate(distance = comma0(distance),
+         U_ij = formatC(U_ij, format = "e", digits = 2),
+         sum_U_ij = formatC(unlist(sum_U_ij), format = "e", digits = 2),
+         p_ij = formatC(p_ij, format = "f", digits = 3)) |>
+  select(VILLCODE, Store_CD, distance, U_ij, sum_U_ij, p_ij) |>
+  show_rows(c(1:3, 28, 29)) |>
+  kable(col.names = c("row", "village $i$<br>`VILLCODE`", "store $j$<br>`Store_CD`",
+                      "distance $d_{ij}$ (m)<br>`distance`", "utility $U_{ij}$<br>`U_ij`",
+                      "sum of utilities $\\sum_k U_{ik}$<br>`sum_U_ij`",
+                      "probability $p_{ij}$<br>`p_ij`"),
+        align = "lllrrrr")
+```
+
+In row 1, $U_{ij} = 1 \times 3{,}807^{-2} = 6.90 \times 10^{-8}$ and $p_{ij} = 6.90 \times 10^{-8}
+\div 1.97 \times 10^{-6} = 0.035$. `sum_U_ij` is the same in the 28 rows of a village. `huff.shares()` stores `sum_U_ij` as a list column, so `unlist()` turns it into numbers for the table. `Store_size` is left out of the table: it is 1 in every row.
+
+## Trade area of store BT
+
+```{r}
+market_share <- huff_share |>
+  filter(Store_CD == "BT")
+
+Trade_area <- village |>
+  left_join(market_share, by = "VILLCODE")
+
+selected_store <- stores |>
+  filter(Store_CD == "BT")
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- `filter()` keeps the `r nrow(village)` rows of store BT, one for each village.
+- `left_join()` adds the probability `p_ij` of store BT to each village polygon. The chapter's `left_join()` has no `by` and joins on `VILLCODE`, the one column the two tables share. Here the key is written out.
+- `selected_store` is the point of store BT, drawn on the map.
+:::
+
+`Trade_area` holds the `r nrow(Trade_area)` village polygons, each with the distance to store BT and the probability of choosing BT. The table below shows six of its `r ncol(Trade_area)` columns for the first three villages.
+
+```{r}
+#| echo: false
+Trade_area |>
+  mutate(geometry_type = as.character(st_geometry_type(Trade_area))) |>
+  st_drop_geometry() |>
+  mutate(distance = comma0(distance),
+         p_ij = formatC(p_ij, format = "f", digits = 3)) |>
+  select(VILLCODE, VILLENG, Store_CD, distance, p_ij, geometry_type) |>
+  show_rows(1:3) |>
+  kable(col.names = c("row", "village $i$<br>`VILLCODE`", "village name<br>`VILLENG`", "store $j$<br>`Store_CD`",
+                      "distance $d_{ij}$ (m)<br>`distance`", "probability $p_{ij}$<br>`p_ij`",
+                      "polygon<br>`geometry`"),
+        align = "llllrrl")
+```
+
+:::: panel-tabset
+#### Map
+
+```{r}
+#| label: bt-map
+#| echo: false
+#| fig-height: 7
+tm_shape(Trade_area) +
+  tm_polygons(fill = "p_ij",
+              fill.scale = tm_scale_intervals(style = "quantile", n = 10,
+                                              values = "brewer.blues"),
+              fill.legend = tm_legend(title = "Probability\nof choosing BT"),
+              col = "grey60", lwd = 0.2) +
+tm_shape(selected_store) +
+  tm_dots(size = 0.5, fill = "red", col = "black") +
+  tm_title("Probability of choosing store BT, by village (deciles)") +
+  tm_compass(type = "8star", size = 2, position = c("right", "top")) +
+  tm_scalebar(position = c("left", "bottom")) +
+  tm_grid(alpha = 0.2) +
+  tm_layout(frame = TRUE, legend.outside = TRUE)
+```
+
+#### Code
+
+```{r}
+#| ref.label: bt-map
+#| eval: false
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+``` r
+tm_scale_intervals(style = "quantile", n = 10, values)    # tmap
+```
+
+- `tm_scale_intervals(style = "quantile", n = 10)`, the setting of the chapter, divides the villages into ten classes of equal size, the deciles of `p_ij`, and colours them from light to dark blue.
+- The store is drawn as a red point with a black outline.
+:::
+::::
+
+```{r}
+#| echo: false
+bt_dec <- quantile(Trade_area$p_ij, c(0.5, 0.9))
+bt_ctx <- huff_share |>
+  group_by(VILLCODE) |>
+  summarise(p_bt = p_ij[Store_CD == "BT"],
+            d_bt = distance[Store_CD == "BT"] / 1000,
+            d_other = min(distance[Store_CD != "BT"]) / 1000) |>
+  mutate(decile = ntile(p_bt, 10))
+bt_d1 <- bt_ctx |> filter(decile == 1)
+bt_d57 <- bt_ctx |> filter(decile %in% 5:7)
+```
+
+The probability of choosing BT is highest in the villages around the store. The median village has a probability of `r round(bt_dec[1], 3)`. The darkest class, the top decile, spans the probabilities from `r round(bt_dec[2], 3)` to `r round(max(Trade_area$p_ij), 3)`, a range about `r round((max(Trade_area$p_ij) - bt_dec[2]) / bt_dec[2])` times as wide as that of the lightest nine classes together.
+
+The probability also depends on the distance to the other stores. In the lowest decile, the median distance to BT is `r round(median(bt_d1$d_bt), 1)` km and the median distance to the nearest other store is `r round(median(bt_d1$d_other), 2)` km. In deciles 5 to 7, the median distance to BT is similar, `r round(median(bt_d57$d_bt), 1)` km. The nearest other store of these villages is a median of `r round(median(bt_d57$d_other), 1)` km away, so the other stores add less utility to the denominator of $p_{ij}$, and the probability of choosing BT is higher.
+
+::: {.callout-tip collapse="false" title="Only one of the 28 stores is mapped"}
+`huff_share` has the probabilities of all 28 stores, and the map shows store BT only. The trade area of a store is the same two steps with its code in the filter: keep the rows of the store with `Store_CD == "BT"`, then join them to the village polygons by `VILLCODE`. Changing `"BT"` to another store code gives the trade area of that store, and repeating the steps for each code gives the 28 trade areas. In the code below, the code of the store is stored once, in `store_cd`, so that it is changed in one place.
+
+```{r}
+#| eval: false
+store_cd <- "BT"
+
+Trade_area <- village |>
+  left_join(filter(huff_share, Store_CD == store_cd), by = "VILLCODE")
+
+selected_store <- filter(stores, Store_CD == store_cd)
+```
+
+The map code of `bt-map` then draws the probability of the chosen store. Its title and legend name BT, so they are changed to the new code as well.
+:::
+
+## Estimated customers of each store
+
+On slide 10, the expected customers from village $i$ at store $j$ are $E_{ij} = p_{ij} C_i$. In the chapter, $C_i$ is the population of the village, `P_CNT`.
+
+```{r}
+huff_share_pp <- huff_share |>
+  left_join(village_tidied, by = "VILLCODE") |>
+  relocate(distance, .after = last_col())
+
+huff_total <- shares.total(huff_share_pp,
+                           "VILLCODE", "Store_CD",
+                           "p_ij", "P_CNT")
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+``` r
+shares.total(mcidataset, submarkets, suppliers,
+             shares, localmarket)                         # MCI
+```
+
+- The join adds the household count, the population and the household size of each village to its 28 rows. Both tables have the village code under the same name, `VILLCODE`, so one name in `by` is enough. The join of `village` with `pop2019` needed `join_by(VILLCODE == V_ID)`, because the two codes had different names.
+- `shares.total()` multiplies each probability by the population of its village and sums the products over the villages of each store. It returns one row for each store, with the store code in `suppliers_single`, the estimated customers $T_j$ in `sum_E_j` and the market share in `share_j`.
+:::
+
+`huff_share_pp` adds the household count `H_CNT`, the population `P_CNT` and the household size `hh_size` of each village to `huff_share`. The three new columns are highlighted in the table below. The expected customers $E_{ij}$ are computed inside `shares.total()` and are not a column of `huff_share_pp`. The last column of the table below computes them for the first three rows.
+
+```{r}
+#| echo: false
+huff_share_pp |>
+  mutate(E_ij = comma0(p_ij * P_CNT),
+         p_ij = formatC(p_ij, format = "f", digits = 3),
+         P_CNT = comma0(P_CNT)) |>
+  select(VILLCODE, Store_CD, p_ij, H_CNT, P_CNT, hh_size, E_ij) |>
+  mutate(H_CNT = comma0(as.numeric(H_CNT)), hh_size = formatC(as.numeric(hh_size), format = "f", digits = 2)) |>
+  show_rows(1:3) |>
+  kable(col.names = c("row", "village \\(i\\)<br><code>VILLCODE</code>",
+                      "store \\(j\\)<br><code>Store_CD</code>",
+                      "probability \\(p_{ij}\\)<br><code>p_ij</code>",
+                      "households<br><code>H_CNT</code>",
+                      "residents \\(C_i\\)<br><code>P_CNT</code>",
+                      "household size<br><code>hh_size</code>",
+                      "expected customers \\(E_{ij} = p_{ij} C_i\\)<br>(computed for this table)"),
+        align = "lllrrrrr", format = "html", escape = FALSE) |>
+  kableExtra::column_spec(5:7, background = "#E5F5E0", bold = TRUE, include_thead = TRUE)
+```
+
+`huff_total` has one row for each store:
+
+```{r}
+#| echo: false
+huff_total |>
+  mutate(sum_E_j = comma0(sum_E_j),
+         share_j = formatC(share_j, format = "f", digits = 4)) |>
+  show_rows(c(1:3, 28)) |>
+  kable(col.names = c("row", "store $j$<br>`suppliers_single`",
+                      "expected customers $T_j$<br>`sum_E_j`", "market share $M_j$<br>`share_j`"),
+        align = "llrr")
+```
+
+```{r}
+store_sales_est <- stores |>
+  left_join(huff_total,
+            by = join_by(Store_CD == suppliers_single)) |>
+  st_drop_geometry()
+```
+
+The sum of `sum_E_j` over the 28 stores is `r format(round(sum(store_sales_est$sum_E_j)), big.mark = ",")`, the population of the `r nrow(village)` villages. The residents of each village are divided among the 28 stores by the probabilities $p_{ij}$, which sum to 1. The chart compares the estimated customers with the recorded sales of each store. In the "How to read" tab, the same chart carries a note on each of its parts: the dots, the fitted line and its band, the line of results, the two histograms on the margins and their count scale.
+
+:::: panel-tabset
+#### Chart
+
+```{r}
+#| label: sales-scatter
+#| echo: false
+#| fig-height: 5.5
+sales_plot <- ggscatterstats(store_sales_est,
+                             x = sum_E_j,
+                             y = Total_Sales,
+                             xlab = "Estimated customers (Huff model, lambda = -2)",
+                             ylab = "Recorded sales",
+                             bf.message = FALSE) +
+  scale_x_continuous(labels = scales::comma) +
+  scale_y_continuous(labels = scales::comma) +
+  theme(text = element_text(size = 13),
+        plot.subtitle = element_text(size = 12),
+        ggside.axis.text = element_text(size = 8))
+sales_plot
+```
+
+#### How to read
+
+```{r}
+#| label: sales-scatter-read
+#| echo: false
+#| fig-width: 11
+#| fig-height: 8.5
+#| fig-alt: "Scatter plot of the 28 stores, estimated customers against recorded sales, r = 0.58, p = 0.0013, with seven labelled arrows pointing at the result of the Pearson test, the two left bars of the blue histogram, a grey dot, the fitted line and its confidence band, the blue histogram, the red histogram and the count scale."
+ink <- "#1F3864"
+read_notes <- data.frame(
+  x = c(0.29, 0.005, 0.005, 0.005, 0.795, 0.795, 0.795),
+  y = c(0.99, 0.99, 0.72, 0.38, 0.805, 0.50, 0.215),
+  label = c(
+    "Result of the Pearson test on the 28 stores: r = 0.58, a moderate\npositive correlation; p = 0.0013, below 0.05, so the correlation is\nsignificant at the 5% level.",
+    "Blue histogram, far left:\n4 stores with 59,000 to\n66,000 estimated customers.\nThe next store has 80,000.",
+    "Each grey dot is one store.\nHorizontal position: its\nestimated customers.\nVertical position: its\nrecorded sales.",
+    "Blue line: the fitted linear\ntrend. Grey band: the 95%\nconfidence band of the line,\nwidest at the ends, where\nthere are fewest stores.",
+    "Blue histogram: estimated\ncustomers. Each bar counts\nthe stores in one range of\nthe horizontal axis. Tallest\nbar: 4 stores between\n101,000 and 104,000.",
+    "Red histogram: recorded\nsales. Each bar counts the\nstores in one range of the\nvertical axis. Longest bar:\n4 stores between 6.7\nand 6.9 million.",
+    "Bar length is read on\nthis 0 to 4 scale\n(number of stores)."))
+read_arrows <- data.frame(
+  x    = c(0.507, 0.215, 0.20, 0.215, 0.795, 0.795, 0.795),
+  y    = c(0.905, 0.93, 0.66, 0.30, 0.797, 0.44, 0.15),
+  xend = c(0.508, 0.373, 0.455, 0.405, 0.549, 0.750, 0.745),
+  yend = c(0.838, 0.778, 0.546, 0.318, 0.786, 0.538, 0.092),
+  curv = c(0, -0.25, -0.15, 0, 0, 0.25, -0.3))
+
+read_plot <- cowplot::ggdraw() +
+  cowplot::draw_plot(sales_plot, x = 0.255, y = 0.04, width = 0.50, height = 0.80)
+for (i in seq_len(nrow(read_arrows))) {
+  read_plot <- read_plot +
+    annotate("curve",
+             x = read_arrows$x[i], y = read_arrows$y[i],
+             xend = read_arrows$xend[i], yend = read_arrows$yend[i],
+             curvature = read_arrows$curv[i], colour = ink, linewidth = 0.7,
+             arrow = arrow(length = unit(0.11, "inches"), type = "closed"))
+}
+read_plot +
+  annotate("label", x = read_notes$x, y = read_notes$y, label = read_notes$label,
+           hjust = 0, vjust = 1, size = 4.3, colour = ink, fill = "#F3F6FB",
+           linewidth = 0.3, lineheight = 1.05, label.padding = unit(0.35, "lines"))
+```
+
+#### Code
+
+```{r}
+#| ref.label: sales-scatter
+#| eval: false
+```
+
+The annotated chart in the "How to read" tab is the same chart drawn on a larger canvas. The notes and arrows are placed at fixed positions on that canvas:
+
+```{r}
+#| ref.label: sales-scatter-read
+#| eval: false
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+``` r
+ggscatterstats(data, x, y, xlab, ylab, bf.message)        # ggstatsplot
+theme(text, plot.subtitle, ggside.axis.text)              # ggplot2, ggside
+```
+
+- `ggscatterstats()` draws one point for each store, a least-squares line with its confidence band, and the result of a Pearson correlation test in the subtitle.
+- By default, `ggscatterstats()` also draws histograms on the top and right margins: the estimated customers of the 28 stores along the top, and their recorded sales along the right side. Each bar counts the stores in one bin.
+- `bf.message = FALSE` leaves out the second line of results, printed below the chart in the chapter's call. That line is a Bayesian version of the test. The lessons use p-values, so only the frequentist line of results is shown.
+- `theme(text = element_text(size = 13))` enlarges the axis labels and titles, and `plot.subtitle` sets the size of the line of results. The `ggside` package draws the histograms on the margins. `ggside.axis.text` sets their count labels to 8 points so that the labels 0 to 4 do not overlap.
+- `ggscatterstats()` returns a `ggplot2` chart, so `scale_x_continuous()` and `scale_y_continuous()` can be added to it.
+- `scales::comma` writes the axis labels with thousands separators.
+:::
+::::
+
+The line above the chart is the result of a Pearson correlation test:
+
+| Item | Meaning |
+|----|----|
+| $t_{\text{Student}}(26) = 3.60$ | test statistic, with 26 degrees of freedom: 28 stores minus 2 |
+| $p = 1.32 \times 10^{-3}$ | p-value: the probability of a correlation at least this strong if there were no correlation |
+| $\hat{r}_{\text{Pearson}} = 0.58$ | Pearson correlation between the estimated customers and the recorded sales |
+| $\text{CI}_{95\%}$ \[0.26, 0.78\] | 95% confidence interval of the correlation |
+| $n_{\text{pairs}} = 28$ | number of stores |
+
+```{r}
+#| echo: false
+ct2 <- cor.test(store_sales_est$sum_E_j, store_sales_est$Total_Sales)
+```
+
+Across the 28 stores, the Pearson correlation between the estimated customers and the recorded sales is `r round(ct2$estimate, 2)`, with a p-value of `r signif(ct2$p.value, 2)`. A linear fit of the sales on the estimate explains `r round(100 * ct2$estimate^2)`% of the variation in sales.
+
+## Trade areas of all stores
+
+The map of store BT shows the probabilities of one store. To give every village to one store, the probabilities of the 28 stores of a village are compared, and the store with the highest probability is the most likely store of the village. The villages of a store form its trade area.
+
+`huff_share` is in long format, with one row for each pair of village and store, so that the 28 probabilities of a village stand in 28 rows. The comparison is simpler with one row for each village and one column for each store, so the table is first made wider.
+
+```{r}
+huff_share_wider <- huff_share |>
+  select(VILLCODE, Store_CD, p_ij) |>
+  pivot_wider(names_from = Store_CD,
+              values_from = p_ij)
+```
+
+The code of the store becomes the name of a column and `p_ij` fills the cells. The columns follow the alphabetical order of the store codes that `huff.shares()` returns. The table shows two of the 28 store columns for the first three villages.
+
+```{r}
+#| echo: false
+ta_best <- apply(as.matrix(huff_share_wider[2:29]), 1, max)
+tibble(VILLCODE = huff_share_wider$VILLCODE,
+       BT = formatC(huff_share_wider$BT, format = "f", digits = 3),
+       CT = formatC(huff_share_wider$CT, format = "f", digits = 3),
+       dots = "...",
+       best = formatC(ta_best, format = "f", digits = 3))[1:3, ] |>
+  kable(col.names = c("village \\(i\\)<br><code>VILLCODE</code>", "<code>BT</code>", "<code>CT</code>",
+                      "28 columns in all", "largest of the 28<br>(not a column)"),
+        align = "lrrcr", format = "html", escape = FALSE) |>
+  kableExtra::column_spec(2:3, background = "#D6E8F7", bold = TRUE, include_thead = TRUE) |>
+  kableExtra::column_spec(5, background = "#E5F5E0", bold = TRUE, include_thead = TRUE)
+```
+
+The next chunk adds the column `TA`, for trade area. For each village, it compares the 28 values of the row and takes the store with the highest value, so `TA` holds the code of the store whose trade area the village belongs to.
+
+```{r}
+huff_TA <- huff_share_wider |>
+  mutate(TA = names(pick(2:29))[max.col(pick(2:29), ties.method = "first")])
+
+huff_TA_tidied <- huff_TA |>
+  select(VILLCODE, TA)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+``` r
+pivot_wider(df, names_from, values_from)                  # tidyr
+pick(...); max.col(m, ties.method)                        # dplyr, base R
+```
+
+- `pivot_wider()` is the reverse of `pivot_longer()`: the values of `Store_CD` become 28 columns, and each village is one row.
+- `pick(2:29)` selects the 28 store columns inside `mutate()`. Column 1 is `VILLCODE`.
+- `max.col()` returns, for each row, the position of the largest value among the 28 columns. `ties.method = "first"` takes the first column when two values are equal.
+- `names(pick(2:29))[...]` turns each position into the store code of that column, and `mutate()` stores it in `TA`: the trade area is compared across the 28 values, and the highest one is taken.
+- `huff_TA_tidied` keeps the village code and `TA`, so that the 28 probability columns are not carried into the join with the village polygons.
+:::
+
+::: {.callout-tip collapse="false" title="Why huff_TA_tidied is a separate step"}
+`huff_TA_tidied` returns only `VILLCODE` and `TA`, so that the table is simple: the 28 probability columns are not needed after the comparison, and the join with the village polygons adds one column instead of 29. The steps are written separately here so that each result can be looked at. They can also be written as one pipe, with the tidying nested in the step of `huff_TA`:
+
+```{r}
+#| eval: false
+huff_TA_tidied <- huff_share_wider |>
+  mutate(TA = names(pick(2:29))[max.col(pick(2:29), ties.method = "first")]) |>
+  select(VILLCODE, TA)
+```
+
+The result is the same table. The village polygons are then joined with it: `village_TA <- village |> left_join(huff_TA_tidied, by = join_by(VILLCODE))`. Both tables have the village code under the same name, so `join_by(VILLCODE)` is enough.
+:::
+
+All 28 stores are the most likely store of some villages.
+
+:::: panel-tabset
+#### Map
+
+```{r}
+#| label: ta-map
+#| echo: false
+#| fig-width: 14
+#| fig-height: 12
+village_TA <- village |>
+  left_join(huff_TA_tidied, by = join_by(VILLCODE))
+
+tm_shape(village_TA) +
+  tm_polygons(fill = "TA",
+              fill.legend = tm_legend(title = "Most likely store")) +
+tm_shape(stores) +
+  tm_text("Store_CD", size = 0.7, ymod = 0.8, col = "black") +
+  tm_title("Trade areas of stores") +
+  tm_layout(frame = TRUE) +
+  tm_compass(type = "8star", size = 2) +
+  tm_scalebar() +
+  tm_grid(alpha = 0.2)
+```
+
+#### Code
+
+```{r}
+#| ref.label: ta-map
+#| eval: false
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- `village_TA` is `village` joined with `huff_TA_tidied` by `join_by(VILLCODE)`, not by row position: `huff.shares()` sorts its rows by village code, so its rows are not in the order of `village`.
+- `tm_polygons(fill = "TA")` colours each village by its store, and the legend lists the 28 store codes. `tm_text()` writes the code of each store at its location.
+:::
+::::
+
+::: {.callout-tip collapse="false" title="A larger trade area is not a larger market share"}
+The size of the coloured area on the map is not the size of the market of the store. A large area can be sparse: it has few residents for its size, so the store has few potential customers there. A small area can be compact, with many residents close to the store, so the store has more customers and the distance to each of them is short. For a delivery service, a compact area means a short travel distance for each order. The market of a store is the sum of the expected customers of its villages, $T_j$ of section 3.6, and not the area of its villages.
+:::
+
+# References
+
+Course materials:
+
+- Kam, T.S. (2026). *Lesson 8: Market Area Analysis for Retail and Service Locations: Huff and MCI Models*. ISSS626 Geospatial Analytics and Applications, SMU. Slide deck of 24 October 2026, 13 slides.
+- Kam, T.S. (2026). [*R for Geospatial Data Science and Analytics*, Chapter 18: Market Area Analysis for Retail and Service Locations using Huff model](https://r4gdsa.netlify.app/chap18.html).
+
+Assigned self-reading:
+
+- Rodrigue, J.-P. *The Geography of Transport Systems*, 6th ed. (web edition). Methods A.18, "Spatial Interactions and the Gravity Model", and A.15, "Market Area Analysis".
+- Huff, D.L. (1963). "A Probabilistic Analysis of Shopping Center Trade Areas". *Land Economics*, 39(1), 81-90.
+
+References listed in the Lesson 8 outline and used on this page:
+
+- Wieland, T. (2017). "Market Area Analysis for Retail and Service Locations with MCI". *The R Journal*, 9(1), 298-323.
+
+Software:
+
+- Wieland, T. (2017). *MCI: Multiplicative Competitive Interaction (MCI) Model*. R package version `r packageVersion("MCI")`. Reference manual, function `huff.lambda()`, pp. 23-25.
+
+# About this document
+
+Written and executed in Quarto with R `r getRversion()`, `MCI` `r packageVersion("MCI")`, `sf` `r packageVersion("sf")` and `tmap` `r packageVersion("tmap")`. All figures and tables are generated at render time from the data in `data/`, so nothing on this page is pasted in.
+
+I used AI assistance while working out the approach. The analysis was run and checked by me.
