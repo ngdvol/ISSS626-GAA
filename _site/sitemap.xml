@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
+    <loc>https://isss626-gaa.vercel.app/Take-home_Ex/Take-home_Ex02/Take-home_Ex02.html</loc>
+    <lastmod>2026-10-25T15:13:09.189Z</lastmod>
+  </url>
+  <url>
     <loc>https://isss626-gaa.vercel.app/Take-home_Ex/Take-home_Ex01/Take-home_Ex01.html</loc>
     <lastmod>2026-09-27T15:10:50.177Z</lastmod>
   </url>
@@ -67,5 +71,9 @@
   <url>
     <loc>https://isss626-gaa.vercel.app/Take-home_Ex/Take-home_Ex01-slides/index.html</loc>
     <lastmod>2026-09-27T14:19:42.895Z</lastmod>
+  </url>
+  <url>
+    <loc>https://isss626-gaa.vercel.app/Take-home_Ex/Take-home_Ex02-slides/index.html</loc>
+    <lastmod>2026-10-25T15:22:27.961Z</lastmod>
   </url>
 </urlset>

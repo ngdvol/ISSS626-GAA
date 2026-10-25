@@ -1,0 +1,4 @@
+# The ACLED event file is not redistributed: ACLED's terms of use restrict sharing the raw data,
+# and the file is 61 MB. Obtain it from acleddata.com (Myanmar, 1 Jan 2021 to 30 Sep 2025).
+data/aspatial/*.csv
+*_cache/
