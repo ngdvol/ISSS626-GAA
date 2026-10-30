@@ -1,0 +1,2672 @@
+---
+title: "Hands-on Exercise 9"
+subtitle: "Calibrating Hedonic Pricing Models for Private Highrise Property with GWR"
+author: "An Loc"
+date: "5 October 2026"
+date-modified: "last-modified"
+date-format: "D MMM YYYY"
+format:
+  html:
+    toc: true
+    toc-depth: 4
+    toc-expand: true
+    code-fold: false
+    code-copy: true
+    fig-width: 9
+    fig-height: 7
+execute:
+  echo: true
+  eval: true
+  warning: false
+  message: false
+  freeze: true
+---
+
+# Overview
+
+In Exercise 6, regions were built from several variables measured over townships. Exercise 9 is
+about one variable, the resale price of a condominium unit, and about whether the effect of each
+feature of a unit on its price is the same everywhere in Singapore. Two units with the same floor
+area, age and tenure sell for different prices in different places. The questions on slides 3 and 4
+are why some units sold at higher prices than others, and why units in the central part of the
+island sold at higher prices.
+
+Why some units sold at higher prices than others is examined with a hedonic pricing model, one
+regression for the whole island. Why central units sold at higher prices is examined with a
+geographically weighted regression (GWR). GWR fits a separate regression at every transaction, from
+the transactions near that transaction, so that each coefficient may differ from place to place.
+
+**Part 1** is a reproduction of r4gdsa chapter 13: the data, exploratory analysis, a simple and a
+multiple linear regression with their diagnostics, a test of the residuals for spatial
+autocorrelation, and GWR with a fixed and an adaptive bandwidth. In **Part 2**, the chapter's method
+is compared with the Lesson 9 slides and readings. The analysis is then extended with the tests and
+maps described in the readings.
+
+::: {.callout-note appearance="simple"}
+
+## Sources
+
+The hands-on exercise is one chapter, assigned for Lesson 9:
+
+- [Chapter 13: Calibrating Hedonic Pricing Model for Private Highrise Property with GWR
+  Method](https://r4gdsa.netlify.app/chap13.html)
+
+Two papers are set as self-reading on the Lesson 9 outline.
+
+| Reading                                                                                              | What it contributes                                                                                                                                                                          | Used in               |
+|------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------|
+| **Brunsdon, Fotheringham and Charlton (1996)**, "Geographically Weighted Regression: A Method for Exploring Spatial Nonstationarity" | GWR as local weighted least squares, the Gaussian and bisquare kernels, the CV score for the bandwidth, and Monte Carlo tests of whether the coefficients vary                              | 3.3, 4.3, 4.6         |
+| **Brunsdon, Fotheringham and Charlton (1999)**, "Some Notes on Parametric Significance Tests for Geographically Weighted Regression" | the ANOVA comparing GWR with OLS, and mixed GWR, in which some coefficients are global | 4.6                   |
+
+On the outline, the GWR paper of Brunsdon, Fotheringham and Charlton is dated 2002, with pages
+281-289. The paper was published in *Geographical Analysis* 28(4), October 1996, on pages 281
+to 298. The paper is cited as 1996 on this page.
+
+The outline also lists two references, Mennis (2006) and Matthews and Yang (2012). Both are used:
+
+| Reference                                                                                                 | What it contributes                                                                                                         | Used in |
+|-----------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------|---------|
+| **Mennis (2006)**, "Mapping the Results of Geographically Weighted Regression"                              | Coefficients mapped together with their t-values, with a diverging colour scheme centred on zero                             | 4.7     |
+| **Matthews and Yang (2012)**, "Mapping the results of local statistics: Using geographically weighted regression" | Only the significant coefficients shown, on one map; the Byrne, Charlton and Fotheringham (2009) adjustment for multiple tests | 4.7     |
+
+From the "All About R" section of the outline, two `GWmodel` papers are used. Gollini et al. (2015,
+section 7) is used for local collinearity, in section 4.4 of this page. Lu et al. (2014) is used for
+the Monte Carlo test (section 4.2 of the paper), local collinearity diagnostics (section 5.2 of the
+paper) and the adjustment of local p-values (section 5.1 of the paper). The outline's other
+packages, `spgwr`, `gwrr` and `lctools`, are not used.
+
+The slide numbers on this page were first taken from last year's deck, dated 13 September 2025.
+This year's Lesson 9 deck, published on 27 October 2026, has the same 39 slides in the same order.
+
+:::
+
+## Differences from the chapter
+
+| Item                                        | The chapter                                                              | This page                                                                                      | Why                                                                                                                                                       | Where      |
+|---------------------------------------------|--------------------------------------------------------------------------|------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|------------|
+| **Response**                                | computes `LOG_SELLING_PRICE`, then fits every model on `SELLING_PRICE`    | Part 1 as in the chapter; log scale in Part 2 | Residuals in dollars: skewness 5.1, kurtosis 73, U-shaped mean, SD from 0.26 to 2.9 million dollars across fitted prices. In logs: skewness −0.2, kurtosis 6.0, no U | 4.1        |
+| **Linearity**                               | "most of the data points are scattered around the 0 line"                 | mean residual by band of fitted price                                                          | Mean residual +0.33 million dollars below a fitted price of 1 million, −0.30 million at 2 to 3 million, +0.76 million above 4 million: the U of slide 17 | 3.2.7      |
+| **Normality**                               | rejected by the test, then said to "resemble normal distribution"         | rejection retained, with the Q-Q plot | Standardised residuals reach 16 in the upper tail of the Q-Q plot | 3.2.8      |
+| **Homoscedasticity**                        | not tested                                                               | Breusch-Pagan test                                                                             | Slide 15 lists constant variance. Breusch-Pagan rejects it in dollars (163) and in logs (234), p < 0.001 | 4.1        |
+| **p-value of Moran's I**                    | "< 2.2e-16" from 499 permutations                                         | 0.002, one-sided, and the `lm.morantest()` of slide 28 | With 499 permutations, the smallest p-value is 1/500. `sfdep` returns 0 for the two-sided test | 3.2.9, 4.2 |
+| **Bandwidth criterion**                     | CV to select the bandwidth, AICc to compare models | eight combinations of kernel, bandwidth type and criterion                                    | AICc selects 1,386 m where CV selects 971 m. The adaptive bisquare kernel has the lowest AICc, 41,712 | 4.3        |
+| **Local collinearity**                      | condition number described with no computation | `gwr.collin.diagno()`                                                                          | Local condition number above 30 at 1,432 of 1,436 transactions, against 19 globally. The local intercept reaches −135 million dollars where the local condition number is highest | 4.4        |
+| **Significance of GWR**                     | AICc "significantly smaller"                                              | ANOVA of Brunsdon et al. (1999) and Monte Carlo test of Brunsdon et al. (1996)                 | AICc has no significance level. The Monte Carlo test shows which coefficients vary over space more than random variation would | 4.6        |
+| **Coefficient maps**                        | standard error and t-value of `AREA_SQM`, with `eval: false`               | coefficients as % effects, masked by adjusted significance, diverging palette                   | The chapter's page shows no GWR map. Mennis (2006) and Matthews and Yang (2012) map a coefficient together with its significance | 3.3.7, 4.7 |
+| **Maps in tmap 4**                          | `col`, `border.col`, `set.zoom.limits`, `alpha` (tmap 3)                   | `fill`, `fill.scale`, `fill.legend`, `fill_alpha`, static maps                                 | The installed `tmap` is version 4                                                                                                                          | 3.2.9, 3.3 |
+| **SDF conversion**                          | `st_as_sf()` and `st_transform(3414)`                                      | sf object used directly | With sf input, `GWmodel` 2.4 returns an sf object in EPSG:3414                                                                                              | 3.3.5      |
+| **Histograms**                              | twelve `ggplot()` calls                                                  | one `map()` over the twelve variable names | The twelve charts are the chapter's, drawn with one call | 3.1.2      |
+
+::: {.callout-note collapse="true"}
+## Mapping of chapter 13 to this page
+
+| Chapter                                                  | This page                                         |
+|----------------------------------------------------------|---------------------------------------------------|
+| 13.1 to 13.4 Overview, data, packages, GWmodel           | 1 Overview, 2.1 Packages, 2.2 The data             |
+| 13.5.1 to 13.5.2 Geospatial data, CRS                    | 2.2.1 Planning subzone boundaries                  |
+| 13.6.1 Importing the aspatial data                       | 2.2.2 Condominium resale transactions              |
+| 13.6.2 Converting to an sf object                        | 2.2.3 Transactions as points                       |
+| 13.7.1 EDA using statistical graphics                    | 3.1.1 Distribution of the selling price            |
+| 13.7.2 Multiple histograms                               | 3.1.2 Distributions of the explanatory variables   |
+| 13.7.3 Statistical point map                             | 3.1.3 Point map of the selling prices              |
+| 13.8.1 Simple linear regression                          | 3.2.1 Simple linear regression                     |
+| 13.8.2.1 Relationships of the independent variables      | 3.2.2 Correlation between the explanatory variables |
+| 13.8.3 Multiple linear regression                        | 3.2.3 Multiple linear regression                   |
+| 13.8.4 Revising the model                                | 3.2.4 Revised model                                |
+| 13.8.5 gtsummary                                         | 3.2.5 Publication-quality table                    |
+| 13.8.6.1 Multicollinearity                               | 3.2.6 Multicollinearity                            |
+| 13.8.6.2 Non-linearity                                   | 3.2.7 Linearity                                    |
+| 13.8.6.3 Normality                                       | 3.2.8 Normality of the residuals                   |
+| 13.8.6.4 Spatial autocorrelation                         | 3.2.9 Spatial autocorrelation of the residuals     |
+| 13.9.1.1 Computing fixed bandwidth                       | 3.3.1 Fixed bandwidth                              |
+| 13.9.1.2 GWR with fixed bandwidth                        | 3.3.2 GWR with the fixed bandwidth                 |
+| 13.9.2.1 Computing adaptive bandwidth                    | 3.3.3 Adaptive bandwidth                           |
+| 13.9.2.2 GWR with adaptive bandwidth                     | 3.3.4 GWR with the adaptive bandwidth              |
+| 13.9.3 to 13.9.4 GWR output, SDF                         | 3.3.5 Contents of the GWR output                   |
+| 13.9.5 Local R²                                          | 3.3.6 Local R²                                     |
+| 13.9.6 Coefficient estimates                             | 3.3.7 Coefficient estimates                        |
+
+In the chapter, the `tbl_regression()` table is printed twice, without and with the source note, and
+only the second is shown here (section 3.2.5). The data frame `mlr.output`, which is created in the
+chapter and not used there, is left out (section 3.2.9).
+:::
+
+# Getting started
+
+## Packages
+
+```{r}
+pacman::p_load(olsrr, corrplot, ggpubr, sf, sfdep, spdep, GWmodel, tmap,
+               tidyverse, gtsummary, performance, see, RColorBrewer, lmtest,
+               patchwork, knitr)
+```
+
+```{r}
+#| echo: false
+step_fill <- c(added = "#c8ecc8", removed = "#f6c6c6", changed = "#ffe8a3")
+step_table <- function(d, title, added = NULL, removed = NULL, changed = NULL, cells = NULL,
+                       left = NULL) {
+  css <- function(col, i = 0) {
+    f <- if (any(cells$row == i & cells$col == col)) step_fill[["changed"]]
+         else if (col %in% added) step_fill[["added"]]
+         else if (col %in% removed) step_fill[["removed"]]
+         else if (col %in% changed) step_fill[["changed"]]
+    paste0("padding: 2px 6px; border: 1px solid #bbb; white-space: nowrap; text-align: ",
+           if (col %in% left) "left;" else "right;",
+           " box-shadow: none;", if (!is.null(f)) paste0(" background: ", f, ";"))
+  }
+  htmltools::tags$div(
+    htmltools::tags$div(style = "font-size: 0.85em; margin-bottom: 3px;", htmltools::HTML(title)),
+    htmltools::tags$table(
+      style = "border-collapse: collapse; font-size: 0.8em;",
+      htmltools::tags$tr(lapply(names(d), \(n) htmltools::tags$th(style = css(n), n))),
+      lapply(seq_len(nrow(d)), \(i) htmltools::tags$tr(
+        lapply(names(d), \(n) htmltools::tags$td(style = css(n, i), d[[n]][i]))))))
+}
+show_steps <- function(...) {
+  tables <- list(...)
+  arrow <- htmltools::tags$div(style = "font-size: 1.5em; color: #888; padding-top: 0.7em;", "→")
+  items <- c(tables[1], lapply(tables[-1], \(t) htmltools::tags$div(
+    style = "display: flex; gap: 0.6em; align-items: flex-start;", arrow, t)))
+  htmltools::tags$div(style = "display: flex; flex-wrap: wrap; gap: 0.6em; margin: 0.4em 0;", items)
+}
+fmt_n <- function(x, d = 0) formatC(x, format = "f", digits = d, big.mark = ",")
+pt_text <- function(g, d) {
+  xy <- sf::st_coordinates(g)
+  sprintf("POINT (%s %s)", formatC(xy[, 1], format = "f", digits = d),
+          formatC(xy[, 2], format = "f", digits = d))
+}
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+The block uses one function:
+
+```r
+pacman::p_load(...)                                       # pacman
+```
+
+- `p_load()` installs any package that is missing and then attaches all of them, so one call
+  replaces a series of `install.packages()` and `library()` calls.
+
+| Package                  | Used for                                                                  |
+|--------------------------|---------------------------------------------------------------------------|
+| `sf`                     | reading the subzones, converting the transactions to points              |
+| `tidyverse`              | reading and reshaping the transaction table, `ggplot2` charts              |
+| `ggpubr`, `patchwork`    | arranging several charts in one figure                                     |
+| `corrplot`               | the correlation matrix of the explanatory variables                        |
+| `gtsummary`              | the regression table                                                       |
+| `performance`, `see`     | the collinearity, linearity and normality checks, with plots              |
+| `olsrr`                  | a residual plot (named in the chapter's package list)                      |
+| `sfdep`, `spdep`         | distance-band neighbours, Moran's I of the residuals                       |
+| `GWmodel`                | bandwidth selection, geographically weighted regression                    |
+| `tmap`, `RColorBrewer`   | point maps, colour palettes                                                |
+| `lmtest`                 | the Breusch-Pagan test (Part 2)                                            |
+| `knitr`                  | formatting tables computed on the page                                     |
+
+The chapter's package list includes `olsrr`, and the chapter runs the diagnostics with
+`performance`. Both `olsrr` and `performance` are loaded here. In section 3.2.7, one plot is drawn
+with each package. `spdep`, `lmtest`, `patchwork` and `knitr` are additions to the chapter's list.
+`see` draws the plots of `performance`, and the chapter's `plot()` calls load it without naming it.
+:::
+
+## The data
+
+The two data files of section 13.2 were taken from Dr. Kam's AY2025-26 course repository
+(`In-class_Ex/In-class_Ex07/data`). With these files, the numbers printed in the chapter are
+reproduced below, among them the slope of 14,719 and R² of 0.4518 in section 3.2.1, the bandwidths
+of 971.3405 m and 30 neighbours, and the AICc values of 42263.61 and 41982.22 in section 3.3.
+
+| Layer                  | Format         | Features      | Native CRS                         | Contents                                                     |
+|------------------------|----------------|---------------|------------------------------------|--------------------------------------------------------------|
+| `MP14_SUBZONE_WEB_PL`  | ESRI shapefile | 323 polygons  | SVY21, without an EPSG code         | URA Master Plan 2014 planning subzones                        |
+| `Condo_resale_2015`    | CSV            | 1,436 rows    | WGS 84 longitude and latitude       | Condominium resale transactions in 2015, 23 fields            |
+
+### Planning subzone boundaries
+
+```{r}
+#| results: hide
+mpsz <- st_read(dsn = "data/geospatial", layer = "MP14_SUBZONE_WEB_PL")
+```
+
+```{r}
+mpsz_svy21 <- st_transform(mpsz, 3414)
+st_crs(mpsz_svy21)$epsg
+st_bbox(mpsz_svy21)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+The block uses four functions:
+
+```r
+st_read(dsn, layer)                                       # sf
+st_transform(x, crs)                                      # sf
+st_crs(x)                                                 # sf
+st_bbox(obj)                                              # sf
+```
+
+- `st_read()` reads the shapefile into an sf data frame of 323 subzones. It prints a summary that
+  begins with the full path of the data folder on the computer that renders the page. The chunk
+  option `results: hide` keeps that summary off the page.
+- `st_transform(mpsz, 3414)` attaches EPSG:3414, the code for SVY21 / Singapore TM. The `.prj` file
+  describes the same projection without the code, so the transformation leaves every coordinate
+  unchanged. The largest difference from `st_set_crs(mpsz, 3414)` is 0 m.
+- `st_crs()$epsg` returns the code, which is 3414 after the transformation.
+- `st_bbox()` returns the extent of the layer in metres.
+
+**Example** (first two rows):
+
+```{r}
+#| echo: false
+stp_x <- function(x) sapply(st_geometry(x)[1:2], \(g) st_coordinates(g)[1, 1])
+show_steps(
+  step_table(tibble(SUBZONE_N = mpsz$SUBZONE_N[1:2], x = fmt_n(stp_x(mpsz), 1), EPSG = "none"),
+             "<code>mpsz</code>", changed = "EPSG"),
+  step_table(tibble(SUBZONE_N = mpsz_svy21$SUBZONE_N[1:2], x = fmt_n(stp_x(mpsz_svy21), 1),
+                    EPSG = "3414"),
+             "<code>mpsz_svy21</code>", changed = "EPSG"))
+```
+
+`x` is the first corner of each subzone boundary, in metres. Only the EPSG code changes.
+:::
+
+### Condominium resale transactions
+
+```{r}
+condo_resale <- read_csv("data/aspatial/Condo_resale_2015.csv")
+glimpse(condo_resale)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+The block uses two functions:
+
+```r
+read_csv(file)                                            # readr
+glimpse(x)                                                # dplyr
+```
+
+- `read_csv()` reads the file into a tibble of 1,436 rows, one per transaction.
+- `glimpse()` prints one line per column with its type and first values.
+:::
+
+The 23 columns are in four groups:
+
+| Group                     | Columns                                                                                     |
+|---------------------------|---------------------------------------------------------------------------------------------|
+| location                  | `LATITUDE`, `LONGITUDE`, `POSTCODE`                                                         |
+| price, the response       | `SELLING_PRICE`, in Singapore dollars                                                       |
+| the unit and its project  | `AREA_SQM`, `AGE` (years), `NO_Of_UNITS`, `FAMILY_FRIENDLY`, `FREEHOLD`, `LEASEHOLD_99YR`   |
+| distance to amenities     | 13 columns named `PROX_...`, in kilometres                                                  |
+
+`FAMILY_FRIENDLY`, `FREEHOLD` and `LEASEHOLD_99YR` are 0 or 1. In the chapter's text,
+`LEASEHOLD_99YR` is called `LEASE_99YEAR`, a name that is not in the file.
+
+```{r}
+summary(condo_resale[, c("SELLING_PRICE", "AREA_SQM", "AGE", "PROX_CBD", "PROX_MRT")])
+```
+
+### Transactions as points
+
+```{r}
+condo_resale.sf <- st_as_sf(condo_resale,
+                            coords = c("LONGITUDE", "LATITUDE"),
+                            crs = 4326) |>
+  st_transform(crs = 3414)
+```
+
+```{r}
+n_dup <- sum(duplicated(st_coordinates(condo_resale.sf)))
+n_dup
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+The block uses three functions:
+
+```r
+st_as_sf(x, coords, crs)                                  # sf
+st_coordinates(x)                                         # sf
+duplicated(x)                                             # base R
+```
+
+- `st_as_sf()` builds a point from the two coordinate columns of each row. `coords` lists the x
+  column first, so longitude comes before latitude. `crs = 4326` declares the coordinates as WGS 84
+  degrees.
+- `st_transform(crs = 3414)` projects the points to SVY21, the CRS of the subzones, so that
+  distances between points are in metres.
+- `st_coordinates()` returns the x and y of each point. `duplicated()` marks every row whose
+  coordinates occur in an earlier row.
+
+**Example** (first two rows):
+
+```{r}
+#| echo: false
+stp_0 <- condo_resale[1:2, ]
+stp_1 <- st_as_sf(stp_0, coords = c("LONGITUDE", "LATITUDE"), crs = 4326)
+show_steps(
+  step_table(tibble(POSTCODE = stp_0$POSTCODE, LONGITUDE = fmt_n(stp_0$LONGITUDE, 5),
+                    LATITUDE = fmt_n(stp_0$LATITUDE, 5)),
+             "<code>condo_resale</code>", removed = c("LONGITUDE", "LATITUDE")),
+  step_table(tibble(POSTCODE = stp_1$POSTCODE, geometry = pt_text(stp_1, 5)),
+             "<code>st_as_sf()</code>", added = "geometry"),
+  step_table(tibble(POSTCODE = stp_1$POSTCODE, geometry = pt_text(condo_resale.sf[1:2, ], 0)),
+             "<code>st_transform()</code>", changed = "geometry"))
+```
+
+`st_as_sf()` replaces the two coordinate columns with one point in degrees. `st_transform()` then
+converts the point to metres, the unit of SVY21. The other columns are kept and not shown.
+
+```{r}
+#| echo: false
+stp_xy <- st_coordinates(condo_resale.sf)[98:99, ]
+show_steps(
+  step_table(tibble(row = 98:99, POSTCODE = condo_resale.sf$POSTCODE[98:99],
+                    x = fmt_n(stp_xy[, 1], 1), y = fmt_n(stp_xy[, 2], 1),
+                    `duplicated()` = as.character(duplicated(st_coordinates(condo_resale.sf))[98:99])),
+             "Rows 98 and 99: same point", added = "duplicated()"))
+```
+:::
+
+In the data, `r n_dup` transactions share their coordinates with an earlier transaction. Every row
+has its own postcode, and rows at the same point have nearby postcodes, such as 425562 and 425602
+in rows 98 and 99. Each row is a separate transaction, so every transaction is kept.
+
+# Part 1: Chapter 13
+
+## Exploratory data analysis
+
+### Distribution of the selling price
+
+```{r}
+#| fig-height: 3.5
+ggplot(condo_resale.sf, aes(x = SELLING_PRICE)) +
+  geom_histogram(bins = 20, colour = "black", fill = "light blue")
+```
+
+```{r}
+condo_resale.sf <- condo_resale.sf |>
+  mutate(LOG_SELLING_PRICE = log(SELLING_PRICE))
+```
+
+```{r}
+#| fig-height: 3.5
+ggplot(condo_resale.sf, aes(x = LOG_SELLING_PRICE)) +
+  geom_histogram(bins = 20, colour = "black", fill = "light blue")
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+The block uses three functions:
+
+```r
+ggplot(data, aes(x))                                      # ggplot2
+geom_histogram(bins, colour, fill)                        # ggplot2
+mutate(.data, ...)                                        # dplyr
+```
+
+- `geom_histogram(bins = 20)` divides the range of the price into 20 intervals of equal width and
+  draws a bar for the number of transactions in each interval.
+- `mutate()` adds the column `LOG_SELLING_PRICE`, the natural logarithm of the price.
+
+**Example** (first two rows):
+
+```{r}
+#| echo: false
+stp_p <- condo_resale.sf$SELLING_PRICE[1:2]
+show_steps(
+  step_table(tibble(SELLING_PRICE = fmt_n(stp_p),
+                    LOG_SELLING_PRICE = sprintf("log(%s) = %s", fmt_n(stp_p),
+                                                fmt_n(log(stp_p), 3))),
+             "<code>mutate()</code>", added = "LOG_SELLING_PRICE"))
+```
+:::
+
+```{r}
+#| echo: false
+skew <- function(x) mean((x - mean(x))^3) / sd(x)^3
+skew_price <- skew(condo_resale.sf$SELLING_PRICE)
+skew_log <- skew(condo_resale.sf$LOG_SELLING_PRICE)
+```
+
+```{r}
+#| echo: false
+price_q <- scales::dollar(quantile(condo_resale.sf$SELLING_PRICE, c(0.25, 0.75)))
+price_max <- scales::dollar(max(condo_resale.sf$SELLING_PRICE))
+```
+
+The prices are skewed to the right: half the units sold for between `r price_q[1]`
+and `r price_q[2]`, the first and third quartiles. The highest price is `r price_max`. The skewness
+is `r round(skew_price, 2)` on the dollar scale and `r round(skew_log, 2)` on the log scale. In the
+chapter, `LOG_SELLING_PRICE` is computed and then every model is built on `SELLING_PRICE`. In Part
+1, the models are fitted on `SELLING_PRICE`, as in the chapter. In section 4.1, they are fitted on
+the log scale.
+
+### Distributions of the explanatory variables
+
+```{r}
+#| fig-width: 12
+#| fig-height: 8
+hist_vars <- c("AREA_SQM", "AGE", "PROX_CBD", "PROX_CHILDCARE",
+               "PROX_ELDERLYCARE", "PROX_URA_GROWTH_AREA", "PROX_HAWKER_MARKET",
+               "PROX_KINDERGARTEN", "PROX_MRT", "PROX_PARK",
+               "PROX_PRIMARY_SCH", "PROX_TOP_PRIMARY_SCH")
+hist_plots <- map(hist_vars, \(v)
+  ggplot(condo_resale.sf, aes(x = .data[[v]])) +
+    geom_histogram(bins = 20, colour = "black", fill = "light blue"))
+ggarrange(plotlist = hist_plots, ncol = 3, nrow = 4)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+The block uses two functions:
+
+```r
+map(.x, .f)                                               # purrr
+ggarrange(plotlist, ncol, nrow)                           # ggpubr
+```
+
+- The chapter writes out the same `ggplot()` call twelve times, once per variable. `map()` runs it
+  once for each name in `hist_vars` and returns the twelve charts as a list. `.data[[v]]` picks the
+  column whose name is held in `v`.
+- `ggarrange(plotlist = ...)` places the twelve charts in a grid of 3 columns and 4 rows.
+
+**Example**:
+
+```{r}
+#| echo: false
+stp_v <- hist_vars[c(1, 2, 12)]
+show_steps(
+  step_table(tibble(v = stp_v,
+                    `.data[[v]]` = sapply(stp_v, \(v)
+                      paste(fmt_n(head(condo_resale.sf[[v]], 3), 2), collapse = ", ")),
+                    hist_plots = c("[[1]] chart", "[[2]] chart", "[[12]] chart")) |>
+               add_row(v = "...", `.data[[v]]` = "...", hist_plots = "...", .before = 3),
+             "<code>map()</code>: one chart per name", added = "hist_plots"),
+  step_table(tibble(`column 1` = hist_vars[c(1, 4, 7, 10)], `column 2` = hist_vars[c(2, 5, 8, 11)],
+                    `column 3` = hist_vars[c(3, 6, 9, 12)]),
+             "<code>ggarrange(ncol = 3, nrow = 4)</code>"))
+```
+:::
+
+```{r}
+#| echo: false
+x_skew <- sapply(st_drop_geometry(condo_resale.sf)[hist_vars], skew)
+```
+
+Of the 12 variables, `r sum(x_skew > 1)` have a skewness above 1, like the price. For the distance
+variables, most units are close to an amenity of the kind measured and a few are far from one. The
+skewness of `PROX_CHILDCARE` is `r round(x_skew["PROX_CHILDCARE"], 1)`. The skewness of `AREA_SQM`,
+`PROX_MRT` and `PROX_PRIMARY_SCH` is about 2. `PROX_CBD` (`r round(x_skew["PROX_CBD"], 2)`) and
+`PROX_URA_GROWTH_AREA` (`r round(x_skew["PROX_URA_GROWTH_AREA"], 2)`) are close to symmetric.
+
+### Point map of the selling prices
+
+```{r}
+tmap_mode("view")
+tm_shape(mpsz_svy21) +
+  tm_polygons() +
+tm_shape(condo_resale.sf) +
+  tm_dots(fill = "SELLING_PRICE",
+          fill_alpha = 0.6,
+          size = 0.5,
+          fill.scale = tm_scale_intervals(style = "quantile")) +
+  tm_view(set_zoom_limits = c(11, 14))
+tmap_mode("plot")
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+The block uses five functions:
+
+```r
+tmap_mode(mode)                                           # tmap
+tm_shape(shp) + tm_polygons()                             # tmap
+tm_dots(fill, fill_alpha, size, fill.scale)               # tmap
+tm_scale_intervals(style)                                 # tmap
+tm_view(set_zoom_limits)                                  # tmap
+```
+
+- `tmap_mode("view")` draws the next maps as interactive web maps. `tmap_mode("plot")` returns to
+  static maps.
+- `tm_dots()` draws one dot per transaction, coloured by `SELLING_PRICE`, at 60% opacity.
+- `tm_scale_intervals(style = "quantile")` divides the prices into classes that hold the same number
+  of transactions.
+- `set_zoom_limits = c(11, 14)` keeps the zoom level between 11, the whole island, and 14, a few
+  streets.
+
+**Example**:
+
+```{r}
+#| echo: false
+stp_brk <- classInt::classIntervals(condo_resale.sf$SELLING_PRICE, n = 5, style = "quantile")$brks
+stp_cls <- cut(condo_resale.sf$SELLING_PRICE, stp_brk, include.lowest = TRUE)
+show_steps(
+  step_table(tibble(class = 1:5,
+                    `SELLING_PRICE` = paste(scales::dollar(head(stp_brk, -1)), "to",
+                                            scales::dollar(stp_brk[-1])),
+                    transactions = as.vector(table(stp_cls))),
+             "<code>style = \"quantile\"</code>: five classes", added = "transactions"))
+```
+
+The counts differ slightly because several units sold at exactly the price of a break.
+:::
+
+```{r}
+#| echo: false
+condo_pa <- st_join(condo_resale.sf, mpsz_svy21[, c("PLN_AREA_N", "REGION_N")])
+q_price <- quantile(condo_pa$SELLING_PRICE, c(0.2, 0.8))
+top_fifth <- condo_pa |> filter(SELLING_PRICE >= q_price[2])
+low_fifth <- condo_pa |> filter(SELLING_PRICE <= q_price[1])
+top_pa <- sort(table(top_fifth$PLN_AREA_N), decreasing = TRUE)
+low_pa <- sort(table(low_fifth$PLN_AREA_N), decreasing = TRUE)
+low_reg <- table(low_fifth$REGION_N)
+```
+
+Of the `r nrow(top_fifth)` units in the most expensive
+fifth, `r sum(top_fifth$REGION_N == "CENTRAL REGION")` are in the Central Region, with the largest
+numbers in Bukit Timah (`r top_pa["BUKIT TIMAH"]`), Tanglin (`r top_pa["TANGLIN"]`) and River Valley
+(`r top_pa["RIVER VALLEY"]`). Of the `r nrow(low_fifth)` units in the cheapest
+fifth, `r sum(low_fifth$REGION_N != "CENTRAL REGION")` are in the East (`r low_reg["EAST REGION"]`),
+North (`r low_reg["NORTH REGION"]`), West (`r low_reg["WEST REGION"]`) and North-East
+(`r low_reg["NORTH-EAST REGION"]`) Regions, most often in Tampines (`r low_pa["TAMPINES"]`), Bedok
+(`r low_pa["BEDOK"]`) and Pasir Ris (`r low_pa["PASIR RIS"]`) in the east, and Yishun
+(`r low_pa["YISHUN"]`) and Woodlands (`r low_pa["WOODLANDS"]`) in the north.
+
+## Hedonic pricing with linear regression
+
+::: callout-note
+## What a hedonic pricing model is
+
+A home has features: floor area, age, tenure, and distance to the city centre, a station, a park or
+a school. In a hedonic pricing model, the price is the sum of the values of the home's features. The
+regression estimates the value of each feature. In the chapter, the coefficient of `AREA_SQM` is the
+price of one more square metre. The coefficient of `PROX_MRT` is the change in price for each extra
+kilometre from the nearest MRT station.
+
+According to section 13.1, the chapter's features are structural or locational:
+
+- **structural**: floor area, age, number of units in the development, family-friendly status,
+  freehold status;
+- **locational**: distance to the CBD and to amenities such as MRT stations, parks and schools.
+:::
+
+### Simple linear regression
+
+```{r}
+condo.slr <- lm(formula = SELLING_PRICE ~ AREA_SQM,
+                data = condo_resale.sf)
+summary(condo.slr)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+The block uses two functions:
+
+```r
+lm(formula, data)                                         # stats
+summary(object)                                           # base R
+```
+
+- `lm()` fits a straight line by least squares. The formula `SELLING_PRICE ~ AREA_SQM` names the
+  response on the left of `~` and the explanatory variable on the right.
+- `summary()` prints the coefficients with their standard errors, t-values and p-values, then R²,
+  adjusted R² and the F test.
+:::
+
+The fitted line is
+
+$$\widehat{\text{price}} = `r format(round(coef(condo.slr)[1], 1), big.mark = ",")` + `r format(round(coef(condo.slr)[2], 1), big.mark = ",")` \times \text{area (m}^2\text{)}$$
+
+so each extra square metre adds about `r scales::dollar(round(coef(condo.slr)[2]))` to the price.
+The negative intercept is the price of a unit of zero area. The smallest unit in the data
+has `r min(condo_resale.sf$AREA_SQM)` m², so the intercept is an extrapolation without a practical
+interpretation. R² is `r round(summary(condo.slr)$r.squared, 4)`: the floor area accounts
+for `r round(100 * summary(condo.slr)$r.squared)`% of the variation in price. In the chapter, the
+same number is read as explaining "about 45% of the resale prices". R² is a share of the variation
+of the price around its mean.
+
+```{r}
+#| fig-height: 4
+ggplot(condo_resale.sf, aes(x = AREA_SQM, y = SELLING_PRICE)) +
+  geom_point() +
+  geom_smooth(method = lm)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+geom_point()                                              # ggplot2
+geom_smooth(method = lm)                                  # ggplot2
+```
+
+- `geom_smooth(method = lm)` fits the same least-squares line as `lm()`. It draws the line with a
+  grey band, the 95% confidence interval of the mean price at each value of area.
+:::
+
+```{r}
+#| echo: false
+slr_res <- residuals(condo.slr)
+big_area <- condo_resale.sf$AREA_SQM >= 200
+```
+
+In all, `r sum(condo_resale.sf$SELLING_PRICE > 1e7)` transactions sold for more than 10 million
+dollars, the highest for `r scales::dollar(max(condo_resale.sf$SELLING_PRICE))`
+with `r condo_resale.sf$AREA_SQM[which.max(condo_resale.sf$SELLING_PRICE)]` m². The standard
+deviation of the residuals is `r scales::dollar(round(sd(slr_res[!big_area]), -3))` for units below
+200 m² and `r scales::dollar(round(sd(slr_res[big_area]), -3))` for larger units.
+
+::: callout-note
+## How least squares fits a line
+
+On slides 6 and 7, the residual of a transaction is its observed price minus the price on the line,
+$e_i = y_i - \hat{y}_i$. The least-squares line has the intercept and slope that minimise the sum of
+the squared residuals, $\sum e_i^2$. The chart shows 15 randomly selected transactions, the line
+fitted to all 1,436 transactions, and a red segment for the residual of each of the 15.
+
+```{r}
+#| echo: false
+#| fig-height: 3.6
+set.seed(7)
+ls_demo <- condo_resale.sf |> st_drop_geometry() |> slice_sample(n = 15) |>
+  mutate(fitted = predict(condo.slr, newdata = pick(everything())))
+ggplot(ls_demo, aes(AREA_SQM, SELLING_PRICE)) +
+  geom_abline(intercept = coef(condo.slr)[1], slope = coef(condo.slr)[2], colour = "steelblue") +
+  geom_segment(aes(xend = AREA_SQM, yend = fitted), colour = "firebrick") +
+  geom_point() +
+  scale_y_continuous(labels = scales::label_dollar(scale = 1e-6, suffix = "M")) +
+  labs(x = "AREA_SQM", y = "SELLING_PRICE")
+```
+
+Because the residuals are squared:
+
+- a residual twice as large counts four times as much, so
+  the `r sum(condo_resale.sf$SELLING_PRICE > 1e7)` units sold for more than 10 million dollars weigh
+  heavily in the line;
+- positive and negative residuals both add to the sum of squares.
+:::
+
+::: callout-note
+## How to read the regression summary
+
+Slides 9 to 13 describe the output of `summary()`.
+
+| Output                       | What it measures                                                       | Null hypothesis                             |
+|------------------------------|------------------------------------------------------------------------|---------------------------------------------|
+| **R²**                        | the share of the variation in price around its mean that the model accounts for | none, it is a measure of fit       |
+| **Adjusted R²**               | R² penalised for the number of variables, so that a variable explaining nothing lowers adjusted R² | none                                     |
+| **F-statistic and its p-value** | whether the model as a whole accounts for more variation than expected by chance | every slope is 0, so the mean price is as good a prediction as the model |
+| **t value and Pr(>\|t\|)**    | for one coefficient, the estimate divided by its standard error         | the coefficient is 0 |
+
+$$R^2 = \frac{\text{explained sum of squares}}{\text{total sum of squares}} = 1 - \frac{\sum (y_i - \hat{y}_i)^2}{\sum (y_i - \bar{y})^2}$$
+
+A t value beyond about ±1.96 gives p < 0.05. The degrees of freedom are $n - p - 1$, where $n$ is
+the number of transactions and $p$ the number of explanatory variables (slide 12).
+:::
+
+### Correlation between the explanatory variables
+
+```{r}
+#| fig-width: 12
+#| fig-height: 10
+corrplot(cor(condo_resale[, 5:23]),
+         diag = FALSE,
+         order = "AOE",
+         tl.pos = "td",
+         tl.cex = 0.5,
+         method = "number",
+         type = "upper")
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+The block uses two functions:
+
+```r
+cor(x)                                                    # stats
+corrplot(corr, diag, order, tl.pos, tl.cex, method, type) # corrplot
+```
+
+- `condo_resale[, 5:23]` keeps columns 5 to 23, the 19 explanatory variables from `AREA_SQM` to
+  `LEASEHOLD_99YR`. `cor()` computes the Pearson correlation of every pair of those variables.
+- `corrplot()` prints the matrix with the correlations as numbers (`method = "number"`), above the
+  diagonal only (`type = "upper"`, `diag = FALSE`), with small labels on top and on the diagonal
+  (`tl.pos = "td"`, `tl.cex = 0.5`).
+- `order = "AOE"` reorders the variables by the angular order of the eigenvectors (Friendly, 2002),
+  which places variables with similar correlations next to each other.
+- In the chapter, the `corrplot()` output is called a scatterplot matrix. It is a matrix of
+  correlation coefficients.
+
+**Example** (first two rows):
+
+```{r}
+#| echo: false
+stp_v <- c("FREEHOLD", "LEASEHOLD_99YR")
+stp_cm <- cor(condo_resale[, 5:23])[stp_v, stp_v]
+show_steps(
+  step_table(tibble(FREEHOLD = condo_resale$FREEHOLD[1:2],
+                    LEASEHOLD_99YR = condo_resale$LEASEHOLD_99YR[1:2]),
+             "<code>condo_resale</code>: one row per transaction"),
+  step_table(tibble(` ` = stp_v, FREEHOLD = fmt_n(stp_cm[, 1], 2),
+                    LEASEHOLD_99YR = fmt_n(stp_cm[, 2], 2)),
+             "<code>cor()</code>: one row per variable",
+             cells = tibble(row = c(1, 2), col = c("LEASEHOLD_99YR", "FREEHOLD"))))
+```
+:::
+
+```{r}
+#| echo: false
+cm <- cor(condo_resale[, 5:23])
+cm_up <- cm
+cm_up[lower.tri(cm_up, diag = TRUE)] <- NA
+high_pairs <- which(abs(cm_up) > 0.6, arr.ind = TRUE)
+high_pairs <- tibble(a = rownames(cm_up)[high_pairs[, 1]],
+                     b = colnames(cm_up)[high_pairs[, 2]],
+                     r = round(cm_up[high_pairs], 2)) |>
+  arrange(desc(abs(r)))
+tenure <- table(FREEHOLD = condo_resale$FREEHOLD, LEASEHOLD_99YR = condo_resale$LEASEHOLD_99YR)
+```
+
+Three pairs have an absolute correlation above 0.6:
+
+```{r}
+#| echo: false
+kable(high_pairs, col.names = c("Variable", "Variable", "Correlation"))
+```
+
+`FREEHOLD` and `LEASEHOLD_99YR` are correlated at `r high_pairs$r[1]` because a unit is usually one
+or the other. In all, `r tenure["0", "0"]` units have 0 in both `FREEHOLD` and `LEASEHOLD_99YR`, a
+combination that matches another tenure, such as a 999-year lease. In the chapter, `LEASEHOLD_99YR`
+is dropped and `FREEHOLD` is kept. The pair `PROX_CHILDCARE` and `PROX_BUS_STOP`
+(`r high_pairs$r[2]`) is also kept, and the variance inflation factors of section 3.2.6 are the
+check on it.
+
+### Multiple linear regression
+
+```{r}
+condo.mlr <- lm(
+  formula = SELLING_PRICE ~ AREA_SQM + AGE +
+    PROX_CBD + PROX_CHILDCARE + PROX_ELDERLYCARE +
+    PROX_URA_GROWTH_AREA + PROX_HAWKER_MARKET +
+    PROX_KINDERGARTEN + PROX_MRT + PROX_PARK +
+    PROX_PRIMARY_SCH + PROX_TOP_PRIMARY_SCH +
+    PROX_SHOPPING_MALL + PROX_SUPERMARKET +
+    PROX_BUS_STOP + NO_Of_UNITS +
+    FAMILY_FRIENDLY + FREEHOLD,
+  data = condo_resale.sf)
+summary(condo.mlr)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+lm(formula = y ~ x1 + x2 + ..., data)                     # stats
+```
+
+- With several terms joined by `+`, `lm()` estimates one coefficient for each variable, holding the
+  other variables constant. The model has 18 explanatory variables, the 19 variables of the
+  correlation matrix without `LEASEHOLD_99YR`.
+:::
+
+```{r}
+#| echo: false
+mlr_p <- summary(condo.mlr)$coefficients[-1, 4]
+not_sig <- names(mlr_p)[mlr_p > 0.05]
+```
+
+In all, `r length(not_sig)` variables have p >
+0.05: `r paste0("\x60", not_sig, "\x60", collapse = ", ")`. R²
+is `r round(summary(condo.mlr)$r.squared, 3)`.
+
+### Revised model
+
+```{r}
+condo.mlr1 <- lm(
+  formula = SELLING_PRICE ~ AREA_SQM + AGE +
+    PROX_CBD + PROX_CHILDCARE + PROX_MRT +
+    PROX_ELDERLYCARE + PROX_URA_GROWTH_AREA +
+    PROX_PARK + PROX_PRIMARY_SCH +
+    PROX_SHOPPING_MALL + PROX_BUS_STOP +
+    NO_Of_UNITS + FAMILY_FRIENDLY + FREEHOLD,
+  data = condo_resale.sf)
+summary(condo.mlr1)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- The formula is the one above without the four variables with p > 0.05. The chapter removes all
+  four in one step.
+:::
+
+```{r}
+#| echo: false
+step_model <- condo.mlr
+step_log <- character()
+repeat {
+  p <- summary(step_model)$coefficients[-1, 4]
+  if (max(p) <= 0.05) break
+  step_log <- c(step_log, names(which.max(p)))
+  step_model <- update(step_model, as.formula(paste(". ~ . -", names(which.max(p)))))
+}
+same_set <- setequal(attr(terms(step_model), "term.labels"), attr(terms(condo.mlr1), "term.labels"))
+```
+
+All 14 remaining variables have p < 0.05. R² is `r round(summary(condo.mlr1)$r.squared, 4)`,
+against `r round(summary(condo.mlr)$r.squared, 4)` for the full model. When several variables are
+removed at once, a variable can be dropped whose p-value would fall below 0.05 once the others had
+gone, because each p-value depends on the other variables in the model. Removing the variables one
+at a time, the least significant first,
+leaves `r ifelse(same_set, "the same 14 variables", "a different set of variables")`. The order of
+removal is `r paste0("\x60", step_log, "\x60", collapse = ", ")`.
+
+Holding the other variables constant, the coefficients of `condo.mlr1` read:
+
+- each square metre adds `r scales::dollar(round(coef(condo.mlr1)["AREA_SQM"]))`;
+- each year of age subtracts `r scales::dollar(round(-coef(condo.mlr1)["AGE"]))`;
+- each kilometre further from the CBD
+  subtracts `r scales::dollar(round(-coef(condo.mlr1)["PROX_CBD"]))`;
+- each kilometre further from an MRT station
+  subtracts `r scales::dollar(round(-coef(condo.mlr1)["PROX_MRT"]))`;
+- freehold tenure adds `r scales::dollar(round(coef(condo.mlr1)["FREEHOLD"]))`;
+- distance to a park, an elderly care centre, a primary school or a bus stop has a positive
+  coefficient: units further away have higher prices.
+
+The global model estimates one value of each coefficient for the whole island, and section 3.3
+estimates them for each location.
+
+### Publication-quality table
+
+```{r}
+tbl_regression(condo.mlr1, intercept = TRUE) |>
+  add_glance_source_note(
+    label = list(sigma ~ "\U03C3"),
+    include = c(r.squared, adj.r.squared, AIC, statistic, p.value, sigma))
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+The block uses two functions:
+
+```r
+tbl_regression(x, intercept)                              # gtsummary
+add_glance_source_note(x, label, include)                 # gtsummary
+```
+
+- `tbl_regression()` formats the coefficients of `condo.mlr1` with their 95% confidence intervals
+  and p-values. `intercept = TRUE` keeps the intercept, which is dropped by default.
+- `add_glance_source_note()` adds the model statistics under the table. `include` picks the
+  statistics. `label` renames `sigma` to the Greek letter σ, the residual standard error.
+
+**Example** (row `AREA_SQM` and the note under the table):
+
+```{r}
+#| echo: false
+stp_tbl <- tbl_regression(condo.mlr1, intercept = TRUE) |>
+  add_glance_source_note(label = list(sigma ~ "\U03C3"),
+                         include = c(r.squared, adj.r.squared, AIC, statistic, p.value, sigma))
+stp_row <- as_tibble(stp_tbl)[2, ]
+names(stp_row) <- gsub("\\*", "", names(stp_row))
+stp_cf <- summary(condo.mlr1)$coefficients["AREA_SQM", ]
+stp_col <- tibble(` ` = c("value", "", "means", "from"),
+                  Characteristic = c(stp_row$Characteristic, "↓", "the variable", ""),
+                  Beta = c(stp_row$Beta, "↓", "price change per extra m²", "coefficient of lm()"),
+                  `95% CI` = c(stp_row$`95% CI`, "↓", "range for Beta, 95% confidence",
+                               sprintf("Beta ± 1.96 × SE, SE = %s", fmt_n(stp_cf[["Std. Error"]]))),
+                  `p-value` = c(stp_row$`p-value`, "↓", "test of Beta = 0",
+                                sprintf("t = Beta / SE = %s", fmt_n(stp_cf[["t value"]], 1))))
+stp_gl <- str_split_1(stp_tbl$table_styling$source_note$source_note, "; ") |> str_split_fixed(" = ", 2)
+show_steps(
+  step_table(stp_col, "Columns of the table",
+             cells = tibble(row = 3, col = names(stp_col)[-1]), left = names(stp_col)))
+show_steps(
+  step_table(tibble(Statistic = stp_gl[, 1], value = stp_gl[, 2],
+                    means = c("share of the variation in price explained by the model",
+                              "R² with a penalty for each extra variable",
+                              "fit with a penalty for each coefficient; lower is better",
+                              "F test of all 14 Betas = 0",
+                              "p-value of the F test",
+                              "residual standard error: spread of the residuals, in $")),
+             "Note under the table", changed = "means", left = "means"))
+```
+
+The `(Intercept)` row is the fitted price when every variable is 0. A p-value below 0.05 means the
+variable's Beta is significantly different from 0 at the 5% level.
+:::
+
+The chapter's output has the table twice, without and with the source note. Only the table with the
+source note is kept here.
+
+### Multicollinearity
+
+```{r}
+mlr.vif <- check_collinearity(condo.mlr1)
+mlr.vif
+```
+
+```{r}
+#| fig-height: 4.5
+plot(mlr.vif)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+The block uses two functions:
+
+```r
+check_collinearity(x)                                     # performance
+plot(x)                                                   # see
+```
+
+- `check_collinearity()` computes the variance inflation factor (VIF) of each variable, with a 95%
+  interval. It groups the variables as low (VIF < 5), moderate (5 to 10) or high (> 10).
+- `plot()` draws the VIFs as points against those bands.
+:::
+
+All the VIFs are below 5, the largest `r round(max(mlr.vif$VIF), 2)` for `PROX_CHILDCARE`, which is
+under a third of the threshold of 10 that the chapter uses.
+
+::: callout-note
+## What the variance inflation factor measures
+
+Whether some explanatory variables are redundant (slide 14) is examined with the variance inflation
+factor. The VIF of a variable is computed by regressing that variable on all the other explanatory
+variables:
+
+$$\text{VIF}_j = \frac{1}{1 - R_j^2}$$
+
+where $R_j^2$ is the R² of that regression.
+
+| $R_j^2$  | VIF  | Meaning                                                                                |
+|----------|------|----------------------------------------------------------------------------------------|
+| 0        | 1    | the variable is unrelated to the other variables                                                |
+| 0.69     | 3.3  | `PROX_CHILDCARE`: 69% of its variation is shared with the other 13 variables            |
+| 0.9      | 10   | the usual threshold: the variance of the coefficient is ten times its variance without the other variables |
+
+The standard error of the coefficient is proportional to the square root of the VIF. A VIF of 3.3
+multiplies the standard error by about 1.8, compared with a variable that shares no variation with
+the other variables.
+:::
+
+### Linearity
+
+```{r}
+#| fig-height: 4.5
+check_model(condo.mlr1, check = "linearity")
+```
+
+```{r}
+#| fig-height: 4
+ols_plot_resid_fit(condo.mlr1)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+The block uses two functions:
+
+```r
+check_model(x, check = "linearity")                       # performance
+ols_plot_resid_fit(model)                                 # olsrr
+```
+
+- `check_model(check = "linearity")` plots each residual against its fitted value, with a smoothed
+  line through the points. The chapter's text names `ols_plot_resid_fit()` of `olsrr`. The chapter's
+  code runs `check_model()`. The plots from `ols_plot_resid_fit()` and from `check_model()` are
+  drawn here. They show the same points.
+:::
+
+```{r}
+#| echo: false
+resid_bands <- tibble(fitted = fitted(condo.mlr1), resid = residuals(condo.mlr1)) |>
+  mutate(band = cut(fitted, c(-Inf, 1e6, 2e6, 3e6, 4e6, Inf),
+                    labels = c("below 1M", "1M to 2M", "2M to 3M", "3M to 4M", "above 4M"))) |>
+  group_by(band) |>
+  summarise(n = n(), mean = mean(resid), sd = sd(resid))
+rb <- \(b, col) scales::dollar(round(resid_bands[[col]][resid_bands$band == b], -3))
+```
+
+In the chapter, the plot of residuals against fitted values is read as showing that "most of the
+data points are scattered around the 0 line". On this basis, the relationships between price and
+each variable are judged linear. Grouped by band of fitted price, the residuals differ in mean and
+in spread:
+
+```{r}
+#| echo: false
+kable(resid_bands, digits = 0, format.args = list(big.mark = ","),
+      col.names = c("Fitted price", "Transactions", "Mean residual", "SD of residuals"))
+```
+
+- **Mean residual by fitted price.** It is `r rb("below 1M", "mean")` below a fitted price of 1
+  million dollars, `r rb("2M to 3M", "mean")` between 2 and 3 million,
+  and `r rb("above 4M", "mean")` above 4 million. The model underpredicts units with fitted prices
+  below 1 million and above 4 million dollars, and overpredicts units between 2 and 3 million
+  dollars. The pattern is the U-shape of slide 17, a sign of a nonlinear relationship in dollars.
+- **Residual spread by fitted price.** The standard deviation of the residuals rises
+  from `r rb("below 1M", "sd")` below 1 million dollars to `r rb("above 4M", "sd")` above 4 million
+  dollars. The residuals have the funnel shape of slide 17, which is heteroscedasticity.
+
+In section 4.1, the spread is tested, and the mean residual and the spread are examined on the log
+scale.
+
+::: callout-note
+## The assumptions of linear regression
+
+Slide 15 lists the assumptions of linear regression. The t tests and the F test of `summary()` are
+valid only when all four assumptions hold.
+
+| Assumption                       | What it requires                                                      | How it is checked on this page                      |
+|----------------------------------|-----------------------------------------------------------------------|-----------------------------------------------------|
+| **Linearity**                    | the price changes by a fixed amount for each unit of each variable     | residuals against fitted values (section 3.2.7)      |
+| **Normality**                    | the residuals follow a normal distribution                             | Q-Q plot and Shapiro-Wilk test (section 3.2.8)       |
+| **Homoscedasticity**             | the residuals have the same variance at every fitted value             | Breusch-Pagan test (section 4.1)                     |
+| **Independence**                 | the residuals are uncorrelated, and for spatial data show no clustering in space | Moran's I of the residuals (section 3.2.9)         |
+
+Residual patterns from slide 17, drawn with simulated data:
+
+```{r}
+#| echo: false
+#| fig-height: 2.8
+set.seed(3)
+x_sim <- runif(200, 0, 10)
+patterns <- bind_rows(
+  tibble(pattern = "1. random: assumptions met", fitted = x_sim, resid = rnorm(200)),
+  tibble(pattern = "2. U-shape: relationship not linear", fitted = x_sim,
+         resid = 0.25 * (x_sim - 5)^2 - 2 + rnorm(200, sd = 0.6)),
+  tibble(pattern = "3. funnel: variance not constant", fitted = x_sim,
+         resid = rnorm(200, sd = 0.15 + 0.3 * x_sim)))
+ggplot(patterns, aes(fitted, resid)) +
+  geom_hline(yintercept = 0, colour = "firebrick") +
+  geom_point(size = 0.7, colour = "steelblue") +
+  facet_wrap(~ pattern, nrow = 1) +
+  labs(x = "fitted value", y = "residual")
+```
+
+The residual plot of `condo.mlr1` in section 3.2.7 shows the U-shape and the funnel.
+:::
+
+### Normality of the residuals
+
+```{r}
+check_normality(condo.mlr1)
+```
+
+```{r}
+#| fig-height: 4
+plot(check_normality(condo.mlr1), type = "qq")
+```
+
+```{r}
+#| fig-height: 4
+check_model(condo.mlr1, check = "normality")
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+The block uses two functions:
+
+```r
+check_normality(x)                                        # performance
+check_model(x, check = "normality")                       # performance
+```
+
+- `check_normality()` runs the Shapiro-Wilk test on the standardised residuals. It prints whether
+  the null hypothesis of normality is rejected.
+- `plot(type = "qq")` draws a detrended Q-Q plot. For each residual, $x$ is the quantile of a normal
+  distribution at the same rank, and $y$ is the residual minus that quantile. Residuals from a normal
+  distribution give $y$ close to 0, on the line.
+- `check_model(check = "normality")` draws the density of the residuals against a normal curve.
+
+**Example**:
+
+```{r}
+#| echo: false
+stp_res <- sort(rstudent(condo.mlr1))
+stp_sd <- sd(stp_res) * sqrt((length(stp_res) - 1) / length(stp_res))
+stp_q <- qnorm(ppoints(length(stp_res))) * stp_sd
+stp_i <- c(1, length(stp_res) %/% 2, length(stp_res))
+show_steps(
+  step_table(tibble(rank = c("smallest", "middle", "largest"),
+                    residual = fmt_n(stp_res[stp_i], 2),
+                    `x: normal quantile` = fmt_n(stp_q[stp_i], 2),
+                    `y: residual − x` = fmt_n(stp_res[stp_i] - stp_q[stp_i], 2)),
+             "Three of the 1,436 dots of the Q-Q plot",
+             added = c("x: normal quantile", "y: residual − x")))
+```
+:::
+
+::: callout-note
+## How to read the Q-Q plot
+
+The shapes of a detrended Q-Q plot, drawn with simulated data:
+
+```{r}
+#| echo: false
+#| fig-height: 2.8
+set.seed(4)
+qq_shape <- function(z, shape) {
+  z <- sort((z - mean(z)) / sd(z))
+  q <- qnorm(ppoints(length(z)))
+  tibble(shape = shape, x = q, y = z - q)
+}
+qq_shapes <- bind_rows(qq_shape(rnorm(500), "1. normal: dots on the line"),
+                       qq_shape(rt(500, df = 3), "2. heavy tails: the ends move apart"),
+                       qq_shape(rexp(500), "3. right skew: both ends rise"))
+ggplot(qq_shapes, aes(x, y)) +
+  geom_hline(yintercept = 0, colour = "firebrick") +
+  geom_point(size = 0.7, colour = "steelblue") +
+  facet_wrap(~ shape, nrow = 1) +
+  labs(x = "normal quantile", y = "residual − normal quantile")
+```
+
+- **Left end below the line**: the smallest residuals are more negative than in a normal
+  distribution.
+- **Left end above the line**: the smallest residuals are closer to 0 than in a normal distribution,
+  as in panel 3.
+- **Right end above the line**: the largest residuals are more positive than in a normal
+  distribution.
+- **A wave in the middle**: most residuals are closer to 0 than in a normal distribution.
+
+In the Q-Q plot of `condo.mlr1`, the right end rises to `r round(max(stp_res - stp_q))`, the left
+end is slightly below the line, and the middle has a wave. The residuals have heavy tails, mostly on
+the right: a few units sold for far more than the model predicts.
+:::
+
+```{r}
+#| echo: false
+res_mlr <- residuals(condo.mlr1)
+kurt <- function(x) mean((x - mean(x))^4) / sd(x)^4
+```
+
+The test rejects normality (p < 0.001). In the chapter, the rejection is reported. The residuals are
+then described, from the density plot, as resembling a "normal distribution". The plots above show
+departures from a normal distribution:
+
+- in the Q-Q plot, the largest standardised residual is `r round(max(rstandard(condo.mlr1)), 1)`,
+  where the largest of 1,436 normal values would be about `r round(qnorm(1 - 0.5 / 1436), 1)`;
+- in the density plot, the right tail extends beyond 10 million dollars;
+- the skewness of the residuals is `r round(skew(res_mlr), 2)`, against 0 for a normal distribution;
+- the kurtosis of the residuals is `r round(kurt(res_mlr), 1)`, against 3 for a normal distribution.
+
+The chapter's note quotes the `performance` help page: with large samples, the test is almost always
+significant, so a visual check is advised. Here the visual check gives the same result as the test.
+The departure may reflect the right tail of the prices seen in section 3.1.1.
+
+### Spatial autocorrelation of the residuals
+
+```{r}
+condo_resale.sf <- condo_resale.sf |>
+  mutate(MLR_RES = residuals(condo.mlr1))
+```
+
+```{r}
+tm_shape(mpsz_svy21) +
+  tm_polygons(fill_alpha = 0.4) +
+tm_shape(condo_resale.sf) +
+  tm_dots(fill = "MLR_RES",
+          size = 0.3,
+          fill.scale = tm_scale_intervals(
+            n = 10, style = "quantile",
+            values = "-brewer.rd_bu", midpoint = 0),
+          fill.legend = tm_legend(title = "Residual")) +
+  tm_title("OLS residuals, quantile classes") +
+  tm_layout(legend.outside = TRUE)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+The block uses four functions:
+
+```r
+mutate(.data, ...)                                        # dplyr
+tm_dots(fill, size, fill.scale, fill.legend)              # tmap
+tm_scale_intervals(n, style, values, midpoint)            # tmap
+tm_title(text)                                            # tmap
+```
+
+- `mutate()` adds the residual of each transaction as `MLR_RES`. In the chapter, the residuals are
+  first copied into the data frame `mlr.output`, which no later step reads. The residuals are then
+  joined with `cbind()` under a new column name. The chapter's method and `mutate()` produce the
+  same column.
+- `tm_scale_intervals(n = 10, style = "quantile")` divides the residuals into ten classes of equal
+  size. `values = "-brewer.rd_bu"` is the red-blue palette reversed, so that negative residuals are
+  blue and positive residuals are red. `midpoint = 0` centres the palette on zero.
+- In the chapter, this map is coded for view mode with `#| eval: false`, so the chapter's page shows
+  no map. The map is drawn here as a static map.
+
+**Example** (first two rows):
+
+```{r}
+#| echo: false
+stp_p <- condo_resale.sf$SELLING_PRICE[1:2]
+stp_f <- fitted(condo.mlr1)[1:2]
+show_steps(
+  step_table(tibble(SELLING_PRICE = fmt_n(stp_p),
+                    MLR_RES = sprintf("%s &minus; %s = %s", fmt_n(stp_p), fmt_n(stp_f),
+                                      fmt_n(stp_p - stp_f)) |> lapply(htmltools::HTML)),
+             "<code>MLR_RES</code> = price &minus; fitted price", added = "MLR_RES"))
+```
+:::
+
+```{r}
+#| echo: false
+res_pa <- st_join(condo_resale.sf, mpsz_svy21[, "PLN_AREA_N"]) |>
+  st_drop_geometry() |>
+  group_by(PLN_AREA_N) |>
+  summarise(n = n(), mean_res = mean(MLR_RES)) |>
+  filter(n >= 20) |>
+  arrange(mean_res)
+rp <- \(a) scales::dollar(round(res_pa$mean_res[res_pa$PLN_AREA_N == a], -3))
+```
+
+Red points are units that sold for more than the model predicts. Blue points are units that sold for
+less. Among the `r nrow(res_pa)` planning areas with at least 20 transactions, the mean residual is
+highest in Newton (`r rp("NEWTON")`), River Valley (`r rp("RIVER VALLEY")`) and Jurong West
+(`r rp("JURONG WEST")`). The mean residual is lowest in Queenstown (`r rp("QUEENSTOWN")`), Bishan
+(`r rp("BISHAN")`) and Kallang (`r rp("KALLANG")`). Newton and River Valley, and Queenstown, Bishan
+and Kallang, are all in the Central Region, so the mean residual changes sign over short distances
+inside it. On slide 27, the question is why the spatial distribution of the residuals should be
+examined. A residual is the difference between the observed price and the price predicted from the
+explanatory variables. If neighbouring residuals are alike, a factor that varies with location and
+is absent from the model may affect the price.
+
+```{r}
+condo_resale.sf <- condo_resale.sf |>
+  mutate(nb = st_dist_band(st_geometry(geometry), upper = 1500),
+         wt = st_weights(nb, style = "W"),
+         .before = 1)
+```
+
+```{r}
+set.seed(1234)
+global_moran_perm(condo_resale.sf$MLR_RES,
+                  nb = condo_resale.sf$nb,
+                  wt = condo_resale.sf$wt,
+                  alternative = "two.sided",
+                  nsim = 499)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+The block uses three functions:
+
+```r
+st_dist_band(geometry, lower = 0, upper)                  # sfdep
+st_weights(nb, style = "W")                               # sfdep
+global_moran_perm(x, nb, wt, alternative, nsim)           # sfdep
+```
+
+- `st_dist_band(upper = 1500)` makes every transaction within 1,500 m a neighbour. The distances are
+  in metres because the points are in SVY21.
+- `st_weights(style = "W")` row-standardises the weights, so that each transaction's neighbours have
+  weights summing to 1.
+- `global_moran_perm()` computes Moran's I of the residuals. It compares that value with 499 values
+  from random permutations of the residuals over the points.
+
+**Example** (first two rows):
+
+```{r}
+#| echo: false
+stp_nb <- condo_resale.sf$nb[1:2]
+show_steps(
+  step_table(tibble(nb = sapply(stp_nb, \(x) sprintf("%d rows: %s, ...", length(x),
+                                                     paste(head(x, 3), collapse = ", "))),
+                    wt = sapply(stp_nb, \(x) sprintf("1/%d = %s each", length(x),
+                                                     fmt_n(1 / length(x), 4)))),
+             "<code>mutate(nb = ..., wt = ...)</code>", added = c("nb", "wt")))
+```
+:::
+
+```{r}
+#| echo: false
+nb_card <- lengths(condo_resale.sf$nb)
+nb_comp <- n.comp.nb(condo_resale.sf$nb)$nc
+```
+
+Moran's I of the OLS residuals is 0.144, above its expected value of about 0 under randomness. The
+residuals are positively autocorrelated (one-sided permutation p = 0.002, section 4.2): units within
+1.5 km of each other tend to have similar residuals. Each transaction has between `r min(nb_card)`
+and `r max(nb_card)` neighbours within 1.5 km, with a median of `r median(nb_card)`. The neighbour
+graph has `r nb_comp` separate components.
+
+The printed p-value, "< 2.2e-16", is an error. With 499 permutations, the smallest one-sided p-value
+of a permutation test is 1/500 = 0.002, which occurs when the observed I exceeds all 499 simulated
+values. `sfdep` returns exactly 0 for the two-sided test, which R prints as "< 2.2e-16". The chapter
+reports "< 2.2e-16" as the p-value. The conclusion is the same as the chapter's, because 0.002 is
+one twenty-fifth of 0.05.
+
+::: callout-note
+## Why autocorrelated residuals matter
+
+On slides 24 to 26, spatial non-stationarity is defined as the same stimulus provoking a different
+response in different parts of the study region. A single global model assumes that each square
+metre and each kilometre from the CBD is worth the same everywhere in Singapore.
+
+Slide 25 lists the reasons for a relationship to vary over space:
+
+| Reason                                     | What it is                                                      | Remedy                                      |
+|--------------------------------------------|-----------------------------------------------------------------|---------------------------------------------|
+| sampling variation                         | local estimates differ by chance; the relationship is the same   | a significance test of the local variation   |
+| intrinsic differences in relationships      | real non-stationarity: buyers value features differently by area | a local model, such as GWR                 |
+| model misspecification                     | a missing variable that varies over space                        | addition of the variable                    |
+
+Autocorrelated residuals occur with intrinsic differences in relationships and with model
+misspecification. The OLS standard errors are computed on the assumption of independent residuals,
+so with positive autocorrelation the standard errors are too small and the t values of section 3.2.4
+are too large. Brunsdon, Fotheringham and Charlton (1996) developed GWR to explore relationships
+that differ intrinsically between places.
+:::
+
+## Geographically weighted regression
+
+::: callout-note
+## How GWR estimates a local model
+
+GWR fits one regression at every transaction. The formula of slide 30 has the same terms as OLS, but
+each coefficient depends on the location $(u_i, v_i)$ of transaction $i$:
+
+$$y_i = \beta_0(u_i, v_i) + \sum_k \beta_k(u_i, v_i)\, x_{ik} + \varepsilon_i$$
+
+With a Gaussian kernel, each local regression uses all 1,436 transactions, weighted by their
+distance from transaction $i$ (slide 31). The weight is 1 at distance 0 and 0.61 at a distance equal
+to the bandwidth. The weights are computed by a kernel function of the distance $d_{ij}$ and the
+bandwidth $b$ (slide 32). The kernels used on this page:
+
+| Kernel     | Weight                                                                 | Beyond the bandwidth        |
+|------------|------------------------------------------------------------------------|-----------------------------|
+| Gaussian   | $w_{ij} = \exp\left(-\tfrac{1}{2}(d_{ij}/b)^2\right)$                  | positive; 0.14 at twice the bandwidth |
+| Bisquare   | $w_{ij} = \left(1 - (d_{ij}/b)^2\right)^2$ if $d_{ij} < b$, otherwise 0 | zero                       |
+
+```{r}
+#| echo: false
+#| fig-height: 3
+tibble(d = seq(0, 3000, 10)) |>
+  mutate(Gaussian = exp(-0.5 * (d / 1000)^2),
+         Bisquare = ifelse(d < 1000, (1 - (d / 1000)^2)^2, 0)) |>
+  pivot_longer(-d, names_to = "kernel", values_to = "w") |>
+  ggplot(aes(d, w, colour = kernel)) +
+  geom_line(linewidth = 1) +
+  geom_vline(xintercept = 1000, linetype = "dashed") +
+  scale_colour_manual(values = c("firebrick", "steelblue")) +
+  labs(x = "distance from the regression point (m)", y = "weight", colour = NULL,
+       title = "Kernel weights, b = 1,000 m")
+```
+
+The bandwidth is fixed or adaptive (slide 34):
+
+- **fixed**: the same distance $b$ everywhere, in metres. The number of transactions within $b$ is
+  larger where transactions are dense.
+- **adaptive**: $b$ at each point is the distance to its $k$-th nearest transaction, so every local
+  regression has $k$ transactions within the bandwidth. `bw.gwr()` returns $k$.
+
+```{r}
+#| echo: false
+xy <- st_coordinates(condo_resale.sf)
+dmat <- as.matrix(dist(xy))
+n_near <- rowSums(dmat <= 971.3405) - 1
+pa_region <- st_join(condo_resale.sf, mpsz_svy21[, c("PLN_AREA_N", "REGION_N")])
+north_idx <- which(pa_region$REGION_N == "NORTH REGION")
+pick_pt <- c(which.max(n_near), north_idx[which.min(n_near[north_idx])])
+pick_area <- stringr::str_to_title(pa_region$PLN_AREA_N[pick_pt])
+n_within <- sapply(pick_pt, \(i) sum(dmat[i, ] <= 971.3405) - 1)
+b_ad_north <- sort(dmat[pick_pt[2], ])[31]
+```
+
+Kernel weights for the transactions in `r pick_area[1]` (the most other transactions within 971 m,
+of all 1,436) and in `r pick_area[2]` (the fewest, in the North Region), under the fixed and the
+adaptive bandwidth chosen in sections 3.3.1 and 3.3.3:
+
+```{r}
+#| echo: false
+#| fig-height: 5
+weights_demo <- map_dfr(seq_along(pick_pt), \(k) {
+  i <- pick_pt[k]
+  d <- dmat[i, ]
+  b_ad <- sort(d)[31]
+  bind_rows(
+    tibble(scheme = "fixed, b = 971 m", x = xy[, 1], y = xy[, 2], w = exp(-0.5 * (d / 971.3405)^2)),
+    tibble(scheme = "adaptive, k = 30", x = xy[, 1], y = xy[, 2], w = exp(-0.5 * (d / b_ad)^2))) |>
+    mutate(point = paste0(c("dense: ", "sparse: "), pick_area)[k])
+})
+ggplot(weights_demo, aes(x, y, colour = w)) +
+  geom_sf(data = st_union(mpsz_svy21), inherit.aes = FALSE, fill = "grey95", colour = "grey70") +
+  geom_point(size = 0.6) +
+  geom_point(data = tidyr::crossing(
+               tibble(point = paste0(c("dense: ", "sparse: "), pick_area),
+                      x = xy[pick_pt, 1], y = xy[pick_pt, 2]),
+               scheme = c("fixed, b = 971 m", "adaptive, k = 30")),
+             aes(x, y), colour = "black", shape = 4, size = 3, inherit.aes = FALSE) +
+  scale_colour_viridis_c(option = "magma", direction = -1, limits = c(0, 1)) +
+  facet_grid(point ~ scheme) +
+  coord_sf(datum = NA) +
+  labs(x = NULL, y = NULL, colour = "weight")
+```
+
+The cross marks the regression point. With the fixed bandwidth of 971 m, the number of other
+transactions within 971 m is `r n_within[1]` in `r pick_area[1]` and `r n_within[2]`
+in `r pick_area[2]`. With the adaptive bandwidth, the bandwidth at the transaction
+in `r pick_area[2]` is `r round(b_ad_north)` m, the distance to its 30th nearest transaction. At the
+transaction in `r pick_area[1]`, the bandwidth is `r round(sort(dmat[pick_pt[1], ])[31])` m.
+:::
+
+::: callout-note
+## How the bandwidth is chosen
+
+Slide 35 lists the criteria for the bandwidth. `bw.gwr()` searches for the bandwidth that minimises
+the selected criterion.
+
+- **Cross-validation (CV)**: $CV = \sum_i (y_i - \hat{y}_{\neq i})^2$, where $\hat{y}_{\neq i}$ is
+  the prediction for transaction $i$ from a local regression that leaves $i$ out. A bandwidth near 0
+  reproduces the neighbours of each point but predicts the left-out point poorly. A bandwidth that
+  covers all transactions gives the global model.
+- **AICc**: the corrected Akaike information criterion, which adds a penalty for the effective
+  number of parameters of the model to its fit. The formula on slide 35 is labelled AIC. Its last
+  term, $n\{(n + \mathrm{tr}(S))/(n - 2 - \mathrm{tr}(S))\}$, makes it the corrected form, AICc.
+
+Brunsdon, Fotheringham and Charlton (1996, section 3) introduced the CV score for GWR. They
+minimised it by golden-section search, the search that `bw.gwr()` uses. CV is used in sections 3.3.1
+and 3.3.3, as in the chapter.
+:::
+
+### Fixed bandwidth
+
+```{r}
+#| results: hide
+bw.fixed <- bw.gwr(
+  formula = SELLING_PRICE ~ AREA_SQM + AGE +
+    PROX_CBD + PROX_CHILDCARE + PROX_ELDERLYCARE +
+    PROX_URA_GROWTH_AREA + PROX_MRT + PROX_PARK +
+    PROX_PRIMARY_SCH + PROX_SHOPPING_MALL +
+    PROX_BUS_STOP + NO_Of_UNITS + FAMILY_FRIENDLY +
+    FREEHOLD,
+  data = condo_resale.sf,
+  approach = "CV",
+  kernel = "gaussian",
+  adaptive = FALSE,
+  longlat = FALSE)
+```
+
+```{r}
+bw.fixed
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+bw.gwr(formula, data, approach, kernel, adaptive, longlat) # GWmodel
+```
+
+- `bw.gwr()` evaluates a series of bandwidths by golden-section search. It returns the bandwidth
+  with the lowest score. Each bandwidth evaluated is printed. The chunk option `results: hide` keeps
+  the 20 lines of the search off the page.
+- `approach = "CV"` scores each bandwidth by cross-validation. `kernel = "gaussian"` gives the
+  Gaussian weights of slide 32. `adaptive = FALSE` makes the bandwidth a distance.
+- `longlat = FALSE` computes Euclidean distances on the projected coordinates.
+
+**Example**:
+
+```{r}
+#| echo: false
+stp_d <- sort(as.numeric(st_distance(condo_resale.sf[1, ], condo_resale.sf)))[c(1, 2, 30)]
+show_steps(
+  step_table(tibble(`distance d (m)` = fmt_n(stp_d),
+                    weight = sprintf("exp(&minus;0.5 &times; (%s / %s)²) = %s", fmt_n(stp_d),
+                                     fmt_n(bw.fixed), fmt_n(exp(-0.5 * (stp_d / bw.fixed)^2), 2)) |>
+                      lapply(htmltools::HTML)),
+             "Row 1 and two of its neighbours, Gaussian kernel, fixed b", added = "weight"))
+```
+:::
+
+The chosen bandwidth is `r round(bw.fixed, 1)` m. The chapter has a quiz on why the bandwidth is in
+metres. The bandwidth is in metres because the points are in SVY21 (EPSG:3414), whose unit is the
+metre. With `longlat = FALSE`, the distances are measured in that unit. If the same points were in
+WGS 84 degrees and `longlat = TRUE` were set, `GWmodel` would compute great-circle distances in
+kilometres.
+
+### GWR with the fixed bandwidth
+
+```{r}
+gwr.fixed <- gwr.basic(
+  formula = SELLING_PRICE ~ AREA_SQM + AGE +
+    PROX_CBD + PROX_CHILDCARE + PROX_ELDERLYCARE +
+    PROX_URA_GROWTH_AREA + PROX_MRT + PROX_PARK +
+    PROX_PRIMARY_SCH + PROX_SHOPPING_MALL +
+    PROX_BUS_STOP + NO_Of_UNITS + FAMILY_FRIENDLY +
+    FREEHOLD,
+  data = condo_resale.sf,
+  bw = bw.fixed,
+  kernel = "gaussian",
+  longlat = FALSE)
+gwr.fixed
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+gwr.basic(formula, data, bw, kernel, adaptive = FALSE, longlat) # GWmodel
+```
+
+- `gwr.basic()` fits a weighted regression at each of the 1,436 points, using the bandwidth and
+  kernel supplied as arguments. It returns a list of class `gwrm`. Printing the list gives the
+  report of slide 36.
+:::
+
+::: callout-note
+## How to read the report of `gwr.basic()`
+
+The report has the parts listed on slide 36:
+
+| Part                                    | Contents                                                                        |
+|-----------------------------------------|---------------------------------------------------------------------------------|
+| **Package model**                        | the call, the response and the explanatory variables                            |
+| **Results of global regression**         | the OLS model of section 3.2.4, with its AIC, AICc and BIC                       |
+| **Results of GWR**                       | the kernel and bandwidth, a five-number summary of each local coefficient, and the diagnostics |
+| **SDF**                                  | the local results, one row per transaction, in `gwr.fixed$SDF` (section 3.3.5)   |
+
+The diagnostics, in the order printed:
+
+- **Effective number of parameters**: the total number of parameters of the local fits. OLS uses 15
+  coefficients. With a small bandwidth, each point has its own coefficients, and the number rises
+  towards $n$.
+- **AICc**: computed on the same response as the AICc of the global regression in the same report,
+  so the AICc values are comparable. A smaller AICc indicates a better fit after the penalty for the
+  effective number of parameters.
+- **R² and adjusted R²**: computed from the fitted values of the local regressions.
+:::
+
+```{r}
+#| echo: false
+ols_aicc <- gwr.fixed$GW.diagnostic$AICc
+diag_tbl <- function(g) c(AICc = g$GW.diagnostic$AICc, R2 = g$GW.diagnostic$gw.R2,
+                          adjR2 = g$GW.diagnostic$gwR2.adj, enp = g$GW.diagnostic$enp)
+fx <- diag_tbl(gwr.fixed)
+lm_aicc <- AIC(condo.mlr1) + 2 * 16 * 17 / (1436 - 16 - 1)
+```
+
+The AICc of the GWR is `r format(round(fx["AICc"], 2), nsmall = 2)`,
+against `r format(round(lm_aicc, 2), nsmall = 2)` for the global model. R² rose
+from `r round(summary(condo.mlr1)$r.squared, 3)` to `r round(fx["R2"], 3)`. The local fits
+have `r round(fx["enp"])` effective parameters, against 15 for OLS. In the chapter, the AICc is
+called "significantly smaller". AICc is a measure of fit with a penalty for complexity, with no
+significance level attached. The difference is tested in section 4.6.
+
+### Adaptive bandwidth
+
+```{r}
+#| results: hide
+bw.adaptive <- bw.gwr(
+  formula = SELLING_PRICE ~ AREA_SQM + AGE +
+    PROX_CBD + PROX_CHILDCARE + PROX_ELDERLYCARE +
+    PROX_URA_GROWTH_AREA + PROX_MRT + PROX_PARK +
+    PROX_PRIMARY_SCH + PROX_SHOPPING_MALL +
+    PROX_BUS_STOP + NO_Of_UNITS +
+    FAMILY_FRIENDLY + FREEHOLD,
+  data = condo_resale.sf,
+  approach = "CV",
+  kernel = "gaussian",
+  adaptive = TRUE,
+  longlat = FALSE)
+```
+
+```{r}
+bw.adaptive
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- The call of section 3.3.1 is used with `adaptive = TRUE`, so the bandwidth returned is a number of
+  nearest neighbours.
+
+**Example**:
+
+```{r}
+#| echo: false
+stp_b30 <- sort(as.numeric(st_distance(condo_resale.sf[1, ], condo_resale.sf)))[bw.adaptive]
+show_steps(
+  step_table(tibble(`distance d (m)` = fmt_n(stp_d),
+                    weight = sprintf("exp(&minus;0.5 &times; (%s / %s)²) = %s", fmt_n(stp_d),
+                                     fmt_n(stp_b30), fmt_n(exp(-0.5 * (stp_d / stp_b30)^2), 2)) |>
+                      lapply(htmltools::HTML)),
+             sprintf(paste("Same rows as above; for row 1, b = distance to its %dth nearest",
+                           "(itself included) = %s m"), bw.adaptive, fmt_n(stp_b30)),
+             added = "weight"))
+```
+:::
+
+The chosen bandwidth is `r bw.adaptive` nearest neighbours.
+
+### GWR with the adaptive bandwidth
+
+```{r}
+gwr.adaptive <- gwr.basic(
+  formula = SELLING_PRICE ~ AREA_SQM + AGE +
+    PROX_CBD + PROX_CHILDCARE + PROX_ELDERLYCARE +
+    PROX_URA_GROWTH_AREA + PROX_MRT + PROX_PARK +
+    PROX_PRIMARY_SCH + PROX_SHOPPING_MALL + PROX_BUS_STOP +
+    NO_Of_UNITS + FAMILY_FRIENDLY + FREEHOLD,
+  data = condo_resale.sf,
+  bw = bw.adaptive,
+  kernel = "gaussian",
+  adaptive = TRUE,
+  longlat = FALSE)
+gwr.adaptive
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- The call of section 3.3.2 is used with `bw = bw.adaptive` and `adaptive = TRUE`.
+:::
+
+```{r}
+#| echo: false
+ad <- diag_tbl(gwr.adaptive)
+coef_range <- function(g, v) range(g$SDF[[v]])
+```
+
+The AICc of the adaptive model is `r format(round(ad["AICc"], 2), nsmall = 2)`, lower than the AICc
+of the fixed model, `r format(round(fx["AICc"], 2), nsmall = 2)`. The adaptive model has an R²
+of `r round(ad["R2"], 3)` and `r round(ad["enp"])` effective parameters.
+
+```{r}
+#| echo: false
+diag_compare <- tibble(
+  Model = c("OLS, `condo.mlr1`", "GWR, fixed bandwidth", "GWR, adaptive bandwidth"),
+  Bandwidth = c("n/a", paste(round(bw.fixed), "m"), paste(bw.adaptive, "neighbours")),
+  AICc = c(lm_aicc, fx["AICc"], ad["AICc"]),
+  `R²` = c(summary(condo.mlr1)$r.squared, fx["R2"], ad["R2"]),
+  `Adjusted R²` = c(summary(condo.mlr1)$adj.r.squared, fx["adjR2"], ad["adjR2"]),
+  `Effective parameters` = c(15, fx["enp"], ad["enp"]))
+kable(diag_compare, digits = c(0, 0, 1, 3, 3, 0), format.args = list(big.mark = ","))
+```
+
+The AICc of the fixed and of the adaptive GWR model is lower than the AICc of OLS
+by `r format(round(lm_aicc - fx["AICc"]), big.mark = ",")`
+and `r format(round(lm_aicc - ad["AICc"]), big.mark = ",")`. The five-number summaries in the report
+show implausible local coefficients. In the adaptive model, the local intercept ranges
+from `r scales::dollar(coef_range(gwr.adaptive, "Intercept")[1])`
+to `r scales::dollar(coef_range(gwr.adaptive, "Intercept")[2])`, and the coefficient of `PROX_MRT`
+ranges from `r scales::dollar(coef_range(gwr.adaptive, "PROX_MRT")[1])`
+to `r scales::dollar(coef_range(gwr.adaptive, "PROX_MRT")[2])` per kilometre.
+
+### Contents of the GWR output
+
+```{r}
+condo_resale.sf.adaptive <- gwr.adaptive$SDF
+class(condo_resale.sf.adaptive)
+st_crs(condo_resale.sf.adaptive)$epsg
+names(condo_resale.sf.adaptive)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- `gwr.adaptive$SDF` holds the local results. In the chapter, it is converted with `st_as_sf()` and
+  `st_transform(crs = 3414)`. Since the input was an sf object, `GWmodel` 2.4 returns an sf object
+  in EPSG:3414, so `st_as_sf()` and `st_transform(crs = 3414)` change nothing and are left out.
+
+**Example** (first two rows):
+
+```{r}
+#| echo: false
+stp_g <- gwr.adaptive$SDF[1:2, ]
+show_steps(
+  step_table(tibble(AREA_SQM = paste(condo_resale.sf$AREA_SQM[1:2], "m²")),
+             "<code>condo_resale.sf</code>: floor area", changed = "AREA_SQM"),
+  step_table(tibble(AREA_SQM = paste0("$", fmt_n(stp_g$AREA_SQM), " per m²"),
+                    AREA_SQM_SE = fmt_n(stp_g$AREA_SQM_SE),
+                    AREA_SQM_TV = sprintf("%s / %s = %s", fmt_n(stp_g$AREA_SQM),
+                                          fmt_n(stp_g$AREA_SQM_SE), fmt_n(stp_g$AREA_SQM_TV, 2))),
+             "<code>gwr.adaptive$SDF</code>: local coefficient", changed = "AREA_SQM",
+             added = c("AREA_SQM_SE", "AREA_SQM_TV")))
+```
+:::
+
+| Columns                          | Contents                                                                         |
+|----------------------------------|----------------------------------------------------------------------------------|
+| `Intercept`, `AREA_SQM`, ...      | the 15 local coefficients                                                        |
+| `y`, `yhat`, `residual`           | observed price, fitted price, and their difference                               |
+| `CV_Score`, `Stud_residual`       | the leave-one-out residual, and the studentised residual                         |
+| `..._SE`                          | the standard error of each local coefficient                                     |
+| `..._TV`                          | the local t-value, coefficient divided by standard error                         |
+| `Local_R2`                        | the R² of each local regression                                                  |
+
+The chapter's list of outputs in section 13.9.3 is taken from the help of the GWR tool in ArcGIS. In
+the `GWmodel` output, the condition number and the standardised residuals of that list are absent:
+
+- **condition number**: there is no column for the condition number. `GWmodel` computes local
+  condition numbers with a separate function, `gwr.collin.diagno()`, which is applied in section
+  4.4;
+- **standardised residuals**: the output has studentised residuals, `Stud_residual`.
+
+In the chapter, the object is also called a SpatialPointsDataFrame. With sf input, it is an sf data
+frame.
+
+```{r}
+summary(gwr.adaptive$SDF$yhat)
+```
+
+The fitted prices of the adaptive model range
+from `r scales::dollar(round(min(gwr.adaptive$SDF$yhat)))`
+to `r scales::dollar(round(max(gwr.adaptive$SDF$yhat)))`.
+
+### Local R²
+
+```{r}
+tm_shape(mpsz_svy21) +
+  tm_polygons(fill_alpha = 0.1) +
+tm_shape(condo_resale.sf.adaptive) +
+  tm_dots(fill = "Local_R2",
+          size = 0.3,
+          fill.scale = tm_scale_intervals(style = "pretty", values = "brewer.yl_or_rd"),
+          fill.legend = tm_legend(title = "Local R²")) +
+  tm_layout(legend.outside = TRUE)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- The chapter's chunk uses the arguments of `tmap` version 3 (`col`, `border.col`,
+  `set.zoom.limits`) and is set to `eval: false`, so the chapter's page has no map. The map above
+  uses the version 4 arguments, `fill`, `fill.scale` and `fill.legend`. It is drawn in plot mode.
+- `style = "pretty"` gives classes with round break values, such as 0.6, 0.7 and 0.8.
+:::
+
+```{r}
+#| echo: false
+lr2 <- gwr.adaptive$SDF$Local_R2
+```
+
+```{r}
+#| echo: false
+lr2_pa <- st_join(condo_resale.sf.adaptive, mpsz_svy21[, c("PLN_AREA_N", "REGION_N")]) |>
+  st_drop_geometry() |>
+  group_by(PLN_AREA_N) |>
+  summarise(n = n(), r2 = median(Local_R2)) |>
+  filter(n >= 15)
+lp <- \(a) round(lr2_pa$r2[lr2_pa$PLN_AREA_N == a], 2)
+```
+
+Local R² ranges from `r round(min(lr2), 2)` to `r round(max(lr2), 2)`, with a median
+of `r round(median(lr2), 2)`. Among planning areas with at least 15 transactions, a minimum that
+avoids medians of very few values, the median local R² is lowest in Bishan (`r lp("BISHAN")`), Toa
+Payoh (`r lp("TOA PAYOH")`) and Bukit Merah (`r lp("BUKIT MERAH")`), in the Central Region. The
+median local R² is highest in Woodlands (`r lp("WOODLANDS")`), Choa Chu Kang
+(`r lp("CHOA CHU KANG")`) and Yishun (`r lp("YISHUN")`), in the north and west.
+
+::: callout-note
+## How to read local R²
+
+Local R² is the R² of one local regression: the share of the weighted variation in price near that
+transaction that its local coefficients account for.
+
+- **High value.** A high value means the local model fits the prices of the nearby units well.
+- **Low value.** A low value may reflect a local factor that the variables do not capture, such as a
+  view, a developer's brand or a prestige address. The chapter makes the same point about missing
+  variables.
+- **Spatial dependence.** Neighbouring regressions share most of their data, so a smooth map is
+  expected.
+- **Comparison with the global R².** The local R² uses weighted data and the global R² unweighted
+  data, so their values are on different bases.
+:::
+
+### Coefficient estimates
+
+```{r}
+#| fig-height: 4.5
+area_se <- tm_shape(mpsz_svy21) +
+  tm_polygons(fill_alpha = 0.1) +
+tm_shape(condo_resale.sf.adaptive) +
+  tm_dots(fill = "AREA_SQM_SE", size = 0.2,
+          fill.scale = tm_scale_intervals(style = "quantile", values = "brewer.oranges"),
+          fill.legend = tm_legend(title = "Standard error")) +
+  tm_title("AREA_SQM, standard error")
+
+area_tv <- tm_shape(mpsz_svy21) +
+  tm_polygons(fill_alpha = 0.1) +
+tm_shape(condo_resale.sf.adaptive) +
+  tm_dots(fill = "AREA_SQM_TV", size = 0.2,
+          fill.scale = tm_scale_intervals(style = "quantile", values = "brewer.blues"),
+          fill.legend = tm_legend(title = "t-value")) +
+  tm_title("AREA_SQM, t-value")
+
+tmap_arrange(area_se, area_tv, ncol = 2)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+tmap_arrange(..., ncol)                                   # tmap
+```
+
+- `tmap_arrange()` places the standard error map and the t-value map side by side. In view mode the
+  chapter adds `sync = TRUE`, which links the zoom of the maps. The argument has no effect on static
+  maps, so this page omits it.
+- The chapter's chunk is set to `eval: false` and uses `tmap` 3 arguments, as in section 3.3.6.
+:::
+
+```{r}
+#| echo: false
+area_tv_v <- gwr.adaptive$SDF$AREA_SQM_TV
+```
+
+```{r}
+#| echo: false
+se_region <- st_join(condo_resale.sf.adaptive, mpsz_svy21[, "REGION_N"]) |>
+  st_drop_geometry() |>
+  group_by(REGION_N) |>
+  summarise(se = median(AREA_SQM_SE))
+sr <- \(r) scales::dollar(round(se_region$se[se_region$REGION_N == r]))
+```
+
+The standard error of the floor-area coefficient is smallest in the Central Region
+(median `r sr("CENTRAL REGION")` per m²) and largest in the North Region (`r sr("NORTH REGION")`).
+Floor area varies more in the Central Region, with a standard deviation
+of `r round(sd(condo_pa$AREA_SQM[condo_pa$REGION_N == "CENTRAL REGION"]))` m²
+against `r round(sd(condo_pa$AREA_SQM[condo_pa$REGION_N == "NORTH REGION"]))` m² in the North
+Region. A wider spread of the variable gives a more precise slope. The t-value is above 1.96
+at `r sum(area_tv_v > 1.96)` of the 1,436 transactions, and below −1.96 at 0 transactions, so the
+effect of floor area is positive and significant at the 5% level
+at `r round(100 * mean(area_tv_v > 1.96))`% of the transactions. The coefficients themselves are
+mapped with their significance in section 4.7.
+
+# Part 2: Review and extension
+
+Chapter 13 was reproduced in Part 1. In Part 2, the choices in the chapter's method are compared
+with the Lesson 9 slides and readings. A GWR is then fitted, and its coefficients are tested and
+mapped with their significance, as the readings describe.
+
+| Section | What is done                                                                       | Source                                                                 |
+|---------|------------------------------------------------------------------------------------|------------------------------------------------------------------------|
+|         | **Checking the chapter's method**                                                  |                                                                        |
+| 4.1     | Fit the hedonic model on the log of the price and repeat the diagnostics           | slides 15 to 21; chapter 13.7.1                                        |
+| 4.2     | Compute the correct p-value of Moran's I of the residuals                          | slide 28; Brunsdon et al. (1999, p. 497); chapter 13.8.6.4             |
+| 4.3     | Compare kernels, fixed and adaptive bandwidths, and CV with AICc                   | slides 32 to 35; Brunsdon et al. (1996); Gollini et al. (2015, p. 19)  |
+| 4.4     | Compute the local collinearity diagnostics for the most extreme local coefficients | Gollini et al. (2015), section 7; Lu et al. (2014), section 5.2        |
+|         | **Completing the analysis**                                                        |                                                                        |
+| 4.5     | Fit GWR on the log scale; compare OLS and GWR in dollars and in logs               | sections 4.1 to 4.4; Matthews and Yang (2012, p. 154)                  |
+| 4.6     | Test whether GWR improves on OLS and which coefficients vary                       | Brunsdon et al. (1996, 1999); Lu et al. (2014), section 4.2            |
+| 4.7     | Map the coefficients with their significance, adjusted for multiple tests          | Mennis (2006); Matthews and Yang (2012); Lu et al. (2014), section 5.1 |
+
+The formula of the revised model, `condo.mlr1`, is defined below for the price in dollars and for
+the price in logs:
+
+```{r}
+x_vars <- c("AREA_SQM", "AGE", "PROX_CBD", "PROX_CHILDCARE", "PROX_ELDERLYCARE",
+            "PROX_URA_GROWTH_AREA", "PROX_MRT", "PROX_PARK", "PROX_PRIMARY_SCH",
+            "PROX_SHOPPING_MALL", "PROX_BUS_STOP", "NO_Of_UNITS",
+            "FAMILY_FRIENDLY", "FREEHOLD")
+f_dollar <- reformulate(x_vars, response = "SELLING_PRICE")
+f_log <- reformulate(x_vars, response = "LOG_SELLING_PRICE")
+condo_gw <- condo_resale.sf |> select(SELLING_PRICE, LOG_SELLING_PRICE, all_of(x_vars))
+```
+
+`reformulate()` builds the formula from the vector of names. `condo_gw` keeps only the columns used
+by the models. The neighbour list and weights added in section 3.2.9 are dropped, because `GWmodel`
+reads only plain data columns.
+
+## Response scale: price in dollars and log price
+
+In section 3.1.1, `LOG_SELLING_PRICE` was computed because the prices were skewed
+(skewness `r round(skew_price, 2)`). Every model in Part 1 then used the price in dollars. In
+sections 3.2.7 and 3.2.8, the residuals departed from the assumptions of slide 15: the mean residual
+was U-shaped against the fitted price, the spread increased with the fitted price, and the
+standardised residuals reached `r round(max(rstandard(condo.mlr1)), 1)` in the upper tail.
+
+On slide 18, the idea that the response should be transformed because its values are large is called
+a myth. On slides 19 to 21, the response is transformed because the diagnostic plot shows a
+violation. After the transformation, the violation disappears. The residual plot of section 3.2.7
+shows such a violation. On the log scale, a coefficient $b$ is a proportional effect: one more unit
+of the variable multiplies the price by $e^b$, a change of $100(e^b - 1)$ per cent. One more
+kilometre from the MRT then changes the price of a 3-million-dollar unit by more dollars than the
+price of a 1-million-dollar unit. The U-shaped mean residual and the widening spread in section
+3.2.7 are consistent with proportional effects of this kind.
+
+The question for this section is whether the log scale removes the departures found in Part 1, and
+how it changes the coefficients.
+
+```{r}
+condo.mlr1.log <- lm(f_log, data = condo_resale.sf)
+
+diagnose <- function(m) {
+  r <- residuals(m)
+  bp <- bptest(m)
+  tibble(skewness = skew(r), kurtosis = kurt(r),
+         `Shapiro-Wilk W` = shapiro.test(rstandard(m))$statistic,
+         `Breusch-Pagan` = bp$statistic,
+         `BP p-value` = format.pval(bp$p.value, eps = 0.001))
+}
+bind_rows(dollars = diagnose(condo.mlr1), logs = diagnose(condo.mlr1.log), .id = "Response") |>
+  kable(digits = c(0, 2, 2, 3, 1, 4))
+```
+
+```{r}
+#| fig-height: 6.5
+resid_panel <- function(m, title) {
+  tibble(fitted = fitted(m), resid = rstandard(m)) |>
+    ggplot(aes(fitted, resid)) +
+    geom_hline(yintercept = 0, colour = "firebrick") +
+    geom_point(size = 0.6, alpha = 0.5) +
+    geom_smooth(se = FALSE, colour = "steelblue") +
+    labs(title = title, x = "fitted value", y = "standardised residual")
+}
+qq_panel <- function(m) {
+  tibble(r = rstandard(m)) |>
+    ggplot(aes(sample = r)) + stat_qq(size = 0.6) + stat_qq_line(colour = "firebrick") +
+    labs(x = "normal quantile", y = "standardised residual")
+}
+(resid_panel(condo.mlr1, "price in dollars") | resid_panel(condo.mlr1.log, "log of the price")) /
+  (qq_panel(condo.mlr1) | qq_panel(condo.mlr1.log))
+```
+
+```{r}
+#| echo: false
+dg_d <- diagnose(condo.mlr1)
+dg_l <- diagnose(condo.mlr1.log)
+pct <- \(b) 100 * (exp(b) - 1)
+cl <- coef(condo.mlr1.log)
+p_log <- summary(condo.mlr1.log)$coefficients[-1, 4]
+ns_log <- names(p_log)[p_log > 0.05]
+```
+
+On the log scale:
+
+- **Mean of the residuals.** The smoothed line of the standardised residuals is flat up to a fitted
+  log price of about 15.5, about 5 million dollars. Above a fitted log price of 15.5 the line slopes
+  downward; `r sum(fitted(condo.mlr1.log) > 15.5)` units are in that range.
+- **Skewness and kurtosis.** The skewness of the residuals fell from `r round(dg_d$skewness, 2)`
+  to `r round(dg_l$skewness, 2)`, against 0 for a normal distribution. The kurtosis fell
+  from `r round(dg_d$kurtosis, 1)` to `r round(dg_l$kurtosis, 1)`, against 3. In the Q-Q plot, the
+  points lie on the line except at the lower end, where `r sum(rstandard(condo.mlr1.log) < -3)`
+  units have standardised residuals below −3: they sold for much less than their fitted prices. The
+  Shapiro-Wilk test still rejects normality (W = `r round(dg_l[["Shapiro-Wilk W"]], 3)`, p < 0.001).
+  With 1,436 residuals, a small departure from normality is enough for the test to reject it, as
+  noted on the `performance` help page quoted in section 3.2.8.
+- **Variance of the residuals.** The Breusch-Pagan test rejects homoscedasticity in dollars and in
+  logs (statistic `r round(dg_d[["Breusch-Pagan"]])` in dollars, `r round(dg_l[["Breusch-Pagan"]])`
+  in logs, p < 0.001 for both). In logs, the spread is largest above a fitted log price of 15.
+
+The coefficients become proportional effects:
+
+| Variable                | Coefficient in logs                                | Effect on the price                                         |
+|-------------------------|----------------------------------------------------|-------------------------------------------------------------|
+| `AREA_SQM`              | `r signif(cl["AREA_SQM"], 3)`                        | `r round(pct(cl["AREA_SQM"]), 2)`% per square metre          |
+| `AGE`                   | `r signif(cl["AGE"], 3)`                             | `r round(pct(cl["AGE"]), 2)`% per year                       |
+| `PROX_CBD`              | `r signif(cl["PROX_CBD"], 3)`                        | `r round(pct(cl["PROX_CBD"]), 1)`% per km                    |
+| `PROX_MRT`              | `r signif(cl["PROX_MRT"], 3)`                        | `r round(pct(cl["PROX_MRT"]), 1)`% per km                    |
+| `FREEHOLD`              | `r signif(cl["FREEHOLD"], 3)`                        | `r round(pct(cl["FREEHOLD"]), 1)`% for freehold tenure       |
+
+Four variables that were significant in dollars have p > 0.05 in
+logs: `r paste0("\x60", ns_log, "\x60", collapse = ", ")`. The variables with p > 0.05 in logs are
+kept, so that the models in dollars and in logs have the same variables and can be compared in
+section 4.5. R² is `r round(summary(condo.mlr1.log)$r.squared, 3)` in logs
+and `r round(summary(condo.mlr1)$r.squared, 3)` in dollars. Each R² is a share of the variation of a
+different response, the log price in one model and the price in dollars in the other, so the two R²
+values measure different quantities.
+
+## Residual autocorrelation: p-values of Moran's I
+
+Brunsdon, Fotheringham and Charlton (1999, p. 497) write that if relationships that vary over space
+are modelled with a global regression, "the error terms in the global regression model will exhibit
+spatial autocorrelation". In their house price example, the positive and negative OLS residuals
+"exhibited strong spatial clustering" (p. 506). Moran's I of the OLS residuals is the check for
+this. In section 3.2.9, the p-value of Moran's I of the residuals was printed as "< 2.2e-16", from a
+permutation test with 499 simulations.
+
+A permutation test ranks the observed statistic among the simulated statistics. With 499
+simulations, the one-sided p-value is
+
+$$p = \frac{1 + \text{number of simulated I at least as large as the observed I}}{499 + 1}$$
+
+and its smallest possible value is 1/500 = 0.002. A p-value below 0.002 requires more than 499
+simulations. The test on slide 28 is `lm.morantest()`. Its p-value comes from the normal
+approximation, with the expected I of regression residuals, −0.0055 here, in place of 0. The
+question for this section is the correct p-value of Moran's I, from the permutation test and from
+`lm.morantest()`, for the residuals in dollars and in logs.
+
+```{r}
+lw_1500 <- nb2listw(condo_resale.sf$nb, style = "W")
+set.seed(1234)
+mc_dollar <- moran.mc(residuals(condo.mlr1), lw_1500, nsim = 499)
+set.seed(1234)
+mc_log <- moran.mc(residuals(condo.mlr1.log), lw_1500, nsim = 499)
+lmt_dollar <- lm.morantest(condo.mlr1, lw_1500)
+lmt_log <- lm.morantest(condo.mlr1.log, lw_1500)
+
+tibble(Response = c("dollars", "logs"),
+       `Moran's I` = c(mc_dollar$statistic, mc_log$statistic),
+       `Permutation p` = c(mc_dollar$p.value, mc_log$p.value),
+       `Expected I` = c(lmt_dollar$estimate[2], lmt_log$estimate[2]),
+       `z (lm.morantest)` = c(lmt_dollar$statistic, lmt_log$statistic),
+       `p (lm.morantest)` = format.pval(c(lmt_dollar$p.value, lmt_log$p.value), eps = 0.001)) |>
+  kable(digits = c(0, 4, 3, 5, 1, 3))
+```
+
+```{r}
+#| echo: false
+mc_two <- function(mc) min(1, 2 * min(mc$p.value, 1 - mc$p.value + 1 / 500))
+```
+
+The one-sided permutation p-value is `r mc_dollar$p.value` in dollars, the smallest value possible
+with 499 simulations. The two-sided p-value is `r 2 * mc_dollar$p.value`. The `lm.morantest()`
+z-value of `r round(lmt_dollar$statistic, 1)` corresponds to a p-value below 2.2e-16. The
+permutation test and `lm.morantest()` each reject spatial randomness of the residuals, which agrees
+with the conclusion of chapter 13.
+
+On the log scale, Moran's I rose from `r sprintf("%.3f", mc_dollar$statistic)`
+to `r sprintf("%.3f", mc_log$statistic)`. The log transformation reduced the skewness of the
+residuals (section 4.1). The rise in I may reflect the smaller number of extreme residuals, which
+inflate the denominator of I.
+
+## Bandwidth selection: kernel, bandwidth type and criterion
+
+In sections 3.3.1 and 3.3.3, the fixed and the adaptive bandwidth were selected by CV with a
+Gaussian kernel. In section 3.3.4, the resulting models were compared by AICc. Slides 32 to 35 list
+five kernels, fixed and adaptive bandwidths, and two criteria.
+
+The kernel and the bandwidth determine how much each local regression smooths the data, and the
+criterion determines which bandwidth is chosen:
+
+- **Bandwidth.** A small bandwidth includes few transactions in each local regression, so the
+  estimates have high variance. A large bandwidth gives estimates with low variance that average
+  over local differences.
+- **Criterion.** CV measures a bandwidth by the prediction error for each left-out transaction. AICc
+  measures a bandwidth by the fit of the model, with a penalty for the effective number of
+  parameters (slide 35).
+- **Kernel.** A Gaussian kernel assigns every transaction a positive weight. A bisquare kernel
+  assigns zero weight beyond the bandwidth, so with an adaptive bandwidth of $k$, exactly $k$
+  transactions are used in each local regression (slide 32).
+
+Brunsdon, Fotheringham and Charlton (1996, section 3) present the Gaussian and bisquare kernels and
+the CV score. Gollini et al. (2015, p. 19) describe CV and AIC as the two criteria, and write that
+"in practice, a corrected version of the AIC is used". The question for this section is how the
+bandwidth, the fit and the local coefficients change across the eight combinations, on the chapter's
+model in dollars.
+
+```{r}
+#| results: hide
+bw_grid <- expand_grid(kernel = c("gaussian", "bisquare"),
+                       adaptive = c(FALSE, TRUE),
+                       approach = c("CV", "AICc")) |>
+  mutate(bw = pmap_dbl(list(kernel, adaptive, approach), \(k, a, ap)
+    bw.gwr(f_dollar, data = condo_gw, approach = ap, kernel = k, adaptive = a)))
+
+bw_grid <- bw_grid |>
+  mutate(fit = pmap(list(kernel, adaptive, bw), \(k, a, b)
+    gwr.basic(f_dollar, data = condo_gw, bw = b, kernel = k, adaptive = a)),
+    AICc = map_dbl(fit, \(g) g$GW.diagnostic$AICc),
+    R2 = map_dbl(fit, \(g) g$GW.diagnostic$gw.R2),
+    enp = map_dbl(fit, \(g) g$GW.diagnostic$enp),
+    int_min = map_dbl(fit, \(g) min(g$SDF$Intercept)),
+    int_max = map_dbl(fit, \(g) max(g$SDF$Intercept)))
+```
+
+```{r}
+bw_grid |>
+  transmute(Kernel = kernel,
+            Bandwidth = ifelse(adaptive, "adaptive", "fixed"),
+            Criterion = approach,
+            Value = ifelse(adaptive, paste(bw, "neighbours"), paste(round(bw), "m")),
+            AICc, `R²` = R2, `Effective parameters` = enp,
+            `Intercept, min ($M)` = int_min / 1e6, `Intercept, max ($M)` = int_max / 1e6) |>
+  kable(digits = c(0, 0, 0, 0, 0, 3, 0, 1, 1), format.args = list(big.mark = ","))
+```
+
+```{r}
+#| echo: false
+bg <- \(k, a, ap, col) bw_grid[[col]][bw_grid$kernel == k & bw_grid$adaptive == a & bw_grid$approach == ap]
+best <- bw_grid |> slice_min(AICc)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+expand_grid(...)                                          # tidyr
+pmap_dbl(.l, .f), pmap(.l, .f), map_dbl(.x, .f)           # purrr
+```
+
+- `expand_grid()` builds the eight combinations of kernel, bandwidth type and criterion, one row
+  each.
+- `pmap_dbl()` runs `bw.gwr()` once for each row with the three values of that row. `pmap()` then
+  fits `gwr.basic()` with the selected bandwidth. The fitted models are kept in the list column
+  `fit`. `map_dbl()` extracts one number from each model.
+:::
+
+- **Bandwidth by criterion.** With the Gaussian kernel, the bandwidth that minimises AICc
+  is `r round(bg("gaussian", FALSE, "AICc", "bw"))` m (fixed)
+  and `r bg("gaussian", TRUE, "AICc", "bw")` neighbours (adaptive),
+  against `r round(bg("gaussian", FALSE, "CV", "bw"))` m and `r bg("gaussian", TRUE, "CV", "bw")`
+  neighbours for CV.
+- **Bandwidth by kernel.** With AICc, the bandwidth of the bisquare kernel
+  is `r round(bg("bisquare", FALSE, "AICc", "bw") / 1000, 1)` km (fixed)
+  or `r bg("bisquare", TRUE, "AICc", "bw")` neighbours (adaptive),
+  against `r round(bg("gaussian", FALSE, "AICc", "bw") / 1000, 1)` km
+  and `r bg("gaussian", TRUE, "AICc", "bw")` neighbours for the Gaussian kernel. The bisquare kernel
+  assigns zero weight beyond the bandwidth. The Gaussian kernel assigns a positive weight to every
+  transaction.
+- **AICc by bandwidth type.** For the Gaussian and the bisquare kernel, the adaptive models have a
+  lower AICc than the fixed-bandwidth models. The lowest AICc of the eight
+  combinations, `r format(round(best$AICc), big.mark = ",")`, is for the `r best$kernel` kernel with
+  an adaptive bandwidth of `r best$bw` neighbours selected by `r best$approach`. The Gaussian
+  adaptive model selected by CV (section 3.3.3) has an AICc
+  of `r format(round(bg("gaussian", TRUE, "CV", "AICc")), big.mark = ",")`.
+- **Local intercepts by setting.** The local intercepts stay within about ±5 million dollars only
+  for the fixed bandwidths chosen by AICc:
+  from `r round(bg("gaussian", FALSE, "AICc", "int_min") / 1e6, 1)`
+  to `r round(bg("gaussian", FALSE, "AICc", "int_max") / 1e6, 1)` million with the Gaussian kernel
+  and from `r round(bg("bisquare", FALSE, "AICc", "int_min") / 1e6, 1)`
+  to `r round(bg("bisquare", FALSE, "AICc", "int_max") / 1e6, 1)` million with the bisquare kernel.
+  At the fixed bandwidths selected by CV and at the four adaptive bandwidths, the local intercepts
+  reach tens or hundreds of millions of dollars.
+
+## Local collinearity: correlations, VIFs, VDPs and condition numbers
+
+In section 3.3.4, the local intercepts went down to `r round(min(gwr.adaptive$SDF$Intercept) / 1e6)`
+million dollars. In section 4.3, such values appeared at six of the eight settings. The condition
+number mentioned in the chapter's text is never computed (section 3.3.5). In section 3.2.6, the
+largest VIF of the global model was `r round(max(mlr.vif$VIF), 2)`.
+
+Gollini et al. (2015, section 7) explain why collinearity arises in GWR when the global model has
+none:
+
+- each local regression uses a small, heavily weighted sample, in which two variables can be closely
+  related even if they are unrelated across Singapore;
+- a variable that hardly varies within a neighbourhood becomes collinear with the intercept, because
+  the variable and the intercept column are then almost constant in the local sample.
+
+Gollini et al. (2015) add that in the presence of collinearity, GWR "may find patterns in the
+coefficients where no patterns are actually present". Their rules of thumb for local collinearity
+are an absolute local correlation above 0.8, a local VIF above 10, a variance decomposition
+proportion (VDP) above 0.5, or a local condition number above 30. Lu et al. (2014, section 5.2)
+apply them with `gwr.collin.diagno()`. The question for this section is whether the chapter's
+adaptive model is locally collinear, where, and through which variables.
+
+```{r}
+collin <- gwr.collin.diagno(f_dollar, data = condo_gw, bw = bw.adaptive,
+                            kernel = "gaussian", adaptive = TRUE)
+
+belsley_cn <- function(X) {
+  Xs <- sweep(X, 2, sqrt(colSums(X^2)), "/")
+  d <- svd(Xs)$d
+  max(d) / min(d)
+}
+X_global <- cbind(Intercept = 1, as.matrix(st_drop_geometry(condo_gw)[x_vars]))
+global_cn <- belsley_cn(X_global)
+global_cn
+summary(collin$local_CN)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+gwr.collin.diagno(formula, data, bw, kernel, adaptive)    # GWmodel
+svd(x)                                                    # base R
+```
+
+- `gwr.collin.diagno()` computes, at each transaction and with the same weights as the GWR, the
+  local correlation of every pair of variables, the local VIFs, the VDPs and the condition number.
+- `belsley_cn()` computes the condition number of the global model. Each column of the design
+  matrix, the intercept included, is scaled to length 1, and the condition number is the largest
+  singular value divided by the smallest singular value.
+:::
+
+```{r}
+#| echo: false
+cn <- collin$local_CN
+vdp <- as.data.frame(collin$SDF) |> select(ends_with("_VDP"))
+top_cn <- order(cn, decreasing = TRUE)[1:50]
+vdp_top <- sort(colMeans(vdp[top_cn, ]), decreasing = TRUE)
+xy_gw <- st_coordinates(condo_gw)
+nn30 <- FNN::get.knn(xy_gw, k = 29)$nn.index
+cbd_local_cv <- sapply(seq_len(nrow(condo_gw)), \(i) {
+  v <- condo_gw$PROX_CBD[c(i, nn30[i, ])]
+  sd(v) / mean(v)
+})
+cbd_global_cv <- sd(condo_gw$PROX_CBD) / mean(condo_gw$PROX_CBD)
+int_top <- abs(gwr.adaptive$SDF$Intercept) > quantile(abs(gwr.adaptive$SDF$Intercept), 0.95)
+```
+
+```{r}
+#| fig-height: 5
+tm_shape(mpsz_svy21) +
+  tm_polygons(fill_alpha = 0.1) +
+tm_shape(mutate(condo_gw, local_CN = cn)) +
+  tm_dots(fill = "local_CN", size = 0.3,
+          fill.scale = tm_scale_intervals(breaks = c(0, 30, 100, 300, 1000, 10000, Inf),
+                                          values = "brewer.yl_or_rd"),
+          fill.legend = tm_legend(title = "Local condition number")) +
+  tm_layout(legend.outside = TRUE)
+```
+
+- **Global condition number.** The condition number of the global model is `r round(global_cn, 1)`,
+  below 30.
+- **Local condition numbers.** The local condition number is above 30 at `r sum(cn > 30)` of the
+  1,436 transactions, above 300 at `r sum(cn > 300)` transactions, and above 1,000
+  at `r sum(cn > 1000)` transactions. The median local condition number is `r round(median(cn))` and
+  the maximum is `r format(round(max(cn)), big.mark = ",")`.
+- **Condition number by intercept size.** For the 5% of transactions with the largest local
+  intercepts, the median local condition number
+  is `r format(round(median(cn[int_top])), big.mark = ",")`, against `r round(median(cn[!int_top]))`
+  for the other 95% of transactions.
+- **Collinearity with the intercept.** For the 50 transactions with the highest condition numbers,
+  the mean VDP on the largest condition index is `r round(vdp_top[1], 2)`
+  for `r sub("_VDP", "", names(vdp_top)[1])`, `r round(vdp_top[2], 2)`
+  for `r sub("_VDP", "", names(vdp_top)[2])` and `r round(vdp_top[3], 2)`
+  for `r sub("_VDP", "", names(vdp_top)[3])`, each above 0.5. `PROX_CBD` illustrates the case of
+  Gollini et al. in which a variable hardly varies within a neighbourhood: its coefficient of
+  variation is `r round(cbd_global_cv, 2)` across Singapore, and its median among the 30 nearest
+  neighbours of a transaction is `r round(median(cbd_local_cv), 3)`. Locally, distance to the CBD is
+  almost constant, and its coefficient is collinear with the intercept.
+
+The intercept of −135 million dollars in section 3.3.4 and the intercepts of −150 million dollars on
+slide 38 are therefore consistent with local collinearity. These intercepts are unlikely to reflect
+actual prices. The remedies listed by Gollini et al. are to do nothing, to remove a variable, to
+transform the variables, or to use a GWR designed for collinearity, such as GW ridge regression.
+`PROX_CBD` is retained, because it has the largest |t| among the locational variables of the global
+model, `r round(abs(summary(condo.mlr1)$coefficients["PROX_CBD", "t value"]), 1)`. In section 4.5, a
+bisquare kernel with an adaptive bandwidth chosen by AICc is used.
+
+## Model comparison: OLS and GWR in dollars and in logs
+
+Matthews and Yang (2012, p. 154) write that researchers "typically use the Akaike Information
+Criterion (AIC)" to compare "a 'global' OLS linear regression model with those from the local GWR
+model". The model in this section differs from the chapter's in two choices supported by sections
+4.1 to 4.4: the price is in logs, and the bandwidth is chosen by AICc. The kernel follows from
+section 4.3, where the adaptive bisquare kernel has the lowest AICc. The question for this section
+is how the four models compare: OLS and GWR, in dollars and in logs.
+
+```{r}
+#| results: hide
+bw.log <- bw.gwr(f_log, data = condo_gw, approach = "AICc",
+                 kernel = "bisquare", adaptive = TRUE)
+gwr.log <- gwr.basic(f_log, data = condo_gw, bw = bw.log,
+                     kernel = "bisquare", adaptive = TRUE)
+collin.log <- gwr.collin.diagno(f_log, data = condo_gw, bw = bw.log,
+                                kernel = "bisquare", adaptive = TRUE)
+```
+
+```{r}
+lm_aicc_of <- function(m) {
+  k <- length(coef(m)) + 1
+  AIC(m) + 2 * k * (k + 1) / (nobs(m) - k - 1)
+}
+moran_of <- function(r) moran.test(r, lw_1500)$estimate[[1]]
+
+tibble(
+  Model = c("OLS", "GWR, adaptive Gaussian, k = 30, CV", "OLS",
+            paste0("GWR, adaptive bisquare, k = ", bw.log, ", AICc")),
+  Response = c("dollars", "dollars", "logs", "logs"),
+  AICc = c(lm_aicc_of(condo.mlr1), gwr.adaptive$GW.diagnostic$AICc,
+           lm_aicc_of(condo.mlr1.log), gwr.log$GW.diagnostic$AICc),
+  `R²` = c(summary(condo.mlr1)$r.squared, gwr.adaptive$GW.diagnostic$gw.R2,
+           summary(condo.mlr1.log)$r.squared, gwr.log$GW.diagnostic$gw.R2),
+  `Residual Moran's I` = c(moran_of(residuals(condo.mlr1)), moran_of(gwr.adaptive$SDF$residual),
+                           moran_of(residuals(condo.mlr1.log)), moran_of(gwr.log$SDF$residual)),
+  `Median local CN` = c(NA, median(collin$local_CN), NA, median(collin.log$local_CN))) |>
+  mutate(`Median local CN` = ifelse(is.na(`Median local CN`), "n/a",
+                                    format(round(`Median local CN`)))) |>
+  kable(digits = c(0, 0, 1, 3, 3, 0), format.args = list(big.mark = ","))
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- `lm_aicc_of()` computes the AICc of an `lm` model with the correction of slide 35, counting the
+  residual variance as a parameter. For `condo.mlr1` it returns the global AICc printed by
+  `gwr.basic()` in section 3.3.2.
+- `moran_of()` returns Moran's I of a set of residuals, with the 1,500 m weights of section 4.2.
+- AICc values are comparable only between models with the same response variable, dollars or logs.
+:::
+
+```{r}
+#| echo: false
+cl_log <- as.data.frame(st_drop_geometry(gwr.log$SDF))
+int_rng_log <- range(cl_log$Intercept)
+mrt_rng_log <- range(pct(cl_log$PROX_MRT))
+```
+
+- **GWR improves on OLS in dollars and in logs.** The AICc falls
+  by `r format(round(lm_aicc_of(condo.mlr1) - gwr.adaptive$GW.diagnostic$AICc), big.mark = ",")` in
+  dollars and by `r round(lm_aicc_of(condo.mlr1.log) - gwr.log$GW.diagnostic$AICc)` in logs.
+- **GWR removes the spatial autocorrelation of the residuals.** Moran's I of the residuals falls
+  from 0.14 (OLS, dollars) and 0.20 (OLS, logs) to −0.02 and −0.03 for GWR in dollars and in logs,
+  which is consistent with the local coefficients absorbing the location effect.
+- **The log model's local coefficients.** The local intercepts range
+  from `r round(int_rng_log[1], 1)` to `r round(int_rng_log[2], 1)` in logs. The local effect of
+  each additional kilometre from the MRT ranges from `r round(mrt_rng_log[1])`%
+  to `r round(mrt_rng_log[2])`%. The local condition numbers are higher than for the chapter's model
+  (median `r round(median(collin.log$local_CN))` against `r round(median(collin$local_CN))`), so the
+  extreme local coefficients may reflect collinearity.
+
+## Spatial non-stationarity: pseudo-F and Monte Carlo tests
+
+In the chapter, the lower AICc of GWR in section 3.3.2 is called "significantly smaller". According
+to slide 29, spatial non-stationarity "is assumed and will be tested". The readings describe a test
+of the whole model and a test of each coefficient:
+
+- **Overall improvement of GWR over OLS.** Brunsdon, Fotheringham and Charlton (1999) compare the
+  residual sums of squares of OLS and GWR in an ANOVA table (their Table 2). The reduction in
+  residual sum of squares from OLS to GWR is divided by its degrees of freedom and compared with the
+  GWR residual variance. The ratio is the pseudo-F statistic.
+- **Variation of each coefficient.** Brunsdon, Fotheringham and Charlton (1996, section 3) permute
+  the transactions among the locations, refit the GWR, and compare the variation of each coefficient
+  with its variation in the permuted data. If prices do not depend on location, every permutation is
+  as likely as the real arrangement. The bandwidth selected for the real data is reused for every
+  permutation, a shortcut permitted in the 1996 paper. Lu et al. (2014, section 4.2) describe the
+  test as implemented in `gwr.montecarlo()`.
+
+The question for this section is whether the local model on the log scale is a significant
+improvement, and which of its 15 coefficients vary significantly over Singapore.
+
+```{r}
+rss_ols <- sum(residuals(condo.mlr1.log)^2)
+rss_gwr <- gwr.log$GW.diagnostic$RSS.gw
+df_ols <- df.residual(condo.mlr1.log)
+df_gwr <- gwr.log$GW.diagnostic$edf
+anova_gwr <- tibble(
+  Source = c("OLS residuals", "GWR improvement", "GWR residuals"),
+  SS = c(rss_ols, rss_ols - rss_gwr, rss_gwr),
+  df = c(df_ols, df_ols - df_gwr, df_gwr)) |>
+  mutate(MS = SS / df)
+F_gwr <- anova_gwr$MS[2] / anova_gwr$MS[3]
+p_F <- pf(F_gwr, anova_gwr$df[2], anova_gwr$df[3], lower.tail = FALSE)
+kable(anova_gwr, digits = c(0, 2, 1, 4))
+```
+
+```{r}
+#| eval: false
+set.seed(1234)
+mc_test <- gwr.montecarlo(f_log, data = condo_gw, nsims = 99,
+                          kernel = "bisquare", adaptive = TRUE, bw = bw.log)
+```
+
+```{r}
+#| echo: false
+# The loop of gwr.montecarlo(), run on several cores. Each permutation is applied to the
+# previous one, as in the function, so the permutations are drawn first, in the same order.
+gwr_montecarlo_par <- function(formula, data, nsims, kernel, adaptive, bw) {
+  d0 <- gw.dist(st_coordinates(data))
+  mf <- model.frame(formula, st_drop_geometry(data))
+  y <- model.response(mf)
+  x <- model.matrix(attr(mf, "terms"), mf)
+  n <- length(y)
+  perms <- list(seq_len(n))
+  for (k in seq_len(nsims)) perms[[k + 1]] <- perms[[k]][order(sample(n))]
+  v <- do.call(rbind, parallel::mclapply(perms, \(pm) {
+    dm <- d0[pm, pm]
+    b <- t(sapply(seq_len(n), \(i)
+      GWmodel:::gw_reg_2(x, y, gw.weight(dm[, i], bw, kernel, adaptive))))
+    apply(b, 2, var)
+  }, mc.cores = max(1, parallel::detectCores() - 2)))
+  p <- sapply(seq_len(ncol(v)), \(j)
+    1 - which(sort(v[, j], index.return = TRUE)$ix == 1) / (nsims + 1))
+  matrix(p, ncol = 1, dimnames = list(colnames(x), "p-value"))
+}
+set.seed(1234)
+mc_test <- gwr_montecarlo_par(f_log, condo_gw, nsims = 99, kernel = "bisquare",
+                              adaptive = TRUE, bw = bw.log)
+```
+
+```{r}
+mc_tbl <- tibble(Coefficient = rownames(mc_test), `p-value` = mc_test[, 1]) |>
+  arrange(`p-value`)
+kable(mc_tbl, digits = 2)
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+```r
+gwr.montecarlo(formula, data, nsims, kernel, adaptive, bw) # GWmodel
+pf(q, df1, df2, lower.tail = FALSE)                       # stats
+```
+
+- The ANOVA uses the residual sums of squares of `condo.mlr1.log` and `gwr.log`, and the residual
+  degrees of freedom of each. For GWR, the residual degrees of freedom are `edf`, $n -
+  2\,\mathrm{tr}(S) + \mathrm{tr}(S^\top S)$, printed by `gwr.basic()`. This ANOVA is the simplest
+  form of the test: Brunsdon et al. (1999) refine the degrees of freedom with a further
+  approximation.
+- `gwr.montecarlo()` permutes the rows among the locations 99 times, the default of the function,
+  and refits the GWR each time with `bw.log`. For each coefficient, it returns the share of the 100
+  data sets, 99 permuted and the real one, in which the local values vary at least as much as in the
+  real data.
+- `gwr.montecarlo()` fits the 143,600 local regressions one after another, which takes about 35
+  minutes. The page runs the same loop on several cores. The permutations are drawn in the same
+  order after `set.seed(1234)`, so the p-values are those of `gwr.montecarlo()`. The two gave the
+  same p-values in a test with 3 permutations.
+:::
+
+```{r}
+#| echo: false
+mc_sig <- mc_tbl$Coefficient[mc_tbl$`p-value` < 0.05]
+mc_ns <- mc_tbl$Coefficient[mc_tbl$`p-value` >= 0.05]
+```
+
+The pseudo-F statistic is `r round(F_gwr, 2)` on `r round(anova_gwr$df[2], 1)`
+and `r round(anova_gwr$df[3], 1)` degrees of freedom
+(p `r ifelse(p_F < 0.001, "< 0.001", paste("=", signif(p_F, 2)))`), so GWR is a significant
+improvement on OLS. In the Monte Carlo test, `r length(mc_sig)` of the 15 coefficients vary
+significantly at the 5% level: `r paste0("\x60", mc_sig, "\x60", collapse = ", ")`. For the
+other `r length(mc_ns)` coefficients, `r paste0("\x60", mc_ns, "\x60", collapse = ", ")`, the
+variation of the local values does not exceed the variation in the permuted data at the 5% level. A
+single global coefficient may be sufficient for each of them. Brunsdon et al. (1999, sections 4
+and 5) call a model with some coefficients global and others local a mixed GWR.
+
+## Coefficient maps: local significance after a multiple-test adjustment
+
+The maps of section 3.3.7 show the standard error and the t-value of the floor-area coefficient,
+without the coefficient itself. The outline lists two references on maps of GWR coefficients, Mennis
+(2006) and Matthews and Yang (2012).
+
+Mennis (2006) describes problems in published GWR maps:
+
+- the coefficients are shown without their t-values, a practice that "may visually emphasize the
+  areas of highest (or lowest ...) parameter estimation, regardless of the significance of the
+  estimate";
+- the classes have equal width and the colours are of a single hue, so the map hides the sign of the
+  coefficient.
+
+Mennis recommends a diverging colour scheme centred on zero.
+
+Matthews and Yang (2012) show the coefficient on one map only where its local t-value is beyond
+±1.96, significant at the 5% level.
+
+With 1,436 local tests per coefficient, about 72 tests would be "significant" at 5% by chance alone,
+even if the coefficient were zero everywhere. Lu et al. (2014, section 5.1) describe four
+adjustments for multiple local tests. Byrne, Charlton and Fotheringham (2009) propose one of these
+adjustments, designed for GWR, and Matthews and Yang (2012) cite it. Neighbouring regressions share
+their data, so the local tests are correlated. The adjustment replaces the number of tests with the
+effective number of parameters $p_e$ (Lu et al., 2014, equation 15):
+
+$$\alpha = \frac{0.05}{1 + p_e - p_e / p}$$
+
+where $\alpha$ is the adjusted significance level and $p = 15$ is the number of coefficients of each
+local regression. The question for this section is at which locations the coefficients that vary
+significantly (section 4.6) still have a significant local t-value after this adjustment.
+
+```{r}
+#| echo: false
+enp_log <- gwr.log$GW.diagnostic$enp
+alpha_fb <- 0.05 / (1 + enp_log - enp_log / 15)
+```
+
+The adjusted level is $\alpha$ = `r format(signif(alpha_fb, 2), scientific = FALSE)`, so a local |t|
+above `r round(qt(1 - alpha_fb / 2, gwr.log$GW.diagnostic$edf), 2)` is significant.
+
+```{r}
+gwr_log_sf <- gwr.log$SDF |>
+  mutate(across(all_of(x_vars), \(b) 100 * (exp(b) - 1), .names = "{.col}_PCT"))
+
+coef_map <- function(var, unit) {
+  t_crit <- qt(1 - alpha_fb / 2, gwr.log$GW.diagnostic$edf)
+  dat <- gwr_log_sf |>
+    mutate(value = ifelse(abs(.data[[paste0(var, "_TV")]]) > t_crit,
+                          .data[[paste0(var, "_PCT")]], NA))
+  tm_shape(mpsz_svy21) +
+    tm_polygons(fill = "grey95", col = "grey80", lwd = 0.5) +
+  tm_shape(dat) +
+    tm_dots(fill = "value", size = 0.25,
+            fill.scale = tm_scale_intervals(n = 6, style = "pretty", midpoint = 0,
+                                            values = "brewer.rd_bu",
+                                            value.na = "grey60", label.na = "not significant"),
+            fill.legend = tm_legend(title = unit)) +
+    tm_title(var)
+}
+```
+
+::: {.callout-note collapse="false" title="How the code works"}
+- `across(..., .names = "{.col}_PCT")` adds, for each variable, the local coefficient as a
+  percentage effect on the price, $100(e^b - 1)$.
+- `coef_map()` keeps the percentage where the local |t| is above the adjusted critical value and
+  sets it to `NA` elsewhere. Transactions with `NA` are drawn in grey.
+- `midpoint = 0` with the diverging red-blue palette puts zero at the neutral colour, so that blue
+  and red show the sign of the effect, as Mennis (2006) recommends.
+:::
+
+```{r}
+#| fig-height: 8.5
+mapped_vars <- intersect(c("AREA_SQM", "AGE", "PROX_CBD", "PROX_MRT", "FREEHOLD", "PROX_PARK"),
+                         mc_sig)
+units <- c(AREA_SQM = "% per m²", AGE = "% per year", PROX_CBD = "% per km",
+           PROX_MRT = "% per km", FREEHOLD = "% for freehold", PROX_PARK = "% per km")
+tmap_arrange(map(mapped_vars, \(v) coef_map(v, units[[v]])), ncol = 2)
+```
+
+```{r}
+#| echo: false
+t_crit <- qt(1 - alpha_fb / 2, gwr.log$GW.diagnostic$edf)
+sig_share <- sapply(x_vars, \(v) c(
+  raw = mean(abs(gwr_log_sf[[paste0(v, "_TV")]]) > 1.96),
+  adjusted = mean(abs(gwr_log_sf[[paste0(v, "_TV")]]) > t_crit)))
+sig_tbl <- tibble(Coefficient = x_vars,
+                  `Monte Carlo p` = mc_test[x_vars, 1],
+                  `Share significant, |t| > 1.96` = sig_share["raw", ],
+                  `Share significant, adjusted` = sig_share["adjusted", ])
+```
+
+```{r}
+kable(sig_tbl, digits = 2)
+```
+
+```{r}
+#| echo: false
+sig_areas <- st_join(gwr_log_sf, mpsz_svy21[, "PLN_AREA_N"]) |>
+  st_drop_geometry()
+area_summary <- function(v) {
+  sig_areas |>
+    mutate(pc = .data[[paste0(v, "_PCT")]], sig = abs(.data[[paste0(v, "_TV")]]) > t_crit) |>
+    filter(sig) |>
+    group_by(PLN_AREA_N) |>
+    summarise(n = n(), median_pc = median(pc), .groups = "drop") |>
+    arrange(desc(n))
+}
+area_med <- \(v, a) round(area_summary(v)$median_pc[area_summary(v)$PLN_AREA_N == a])
+n_sig <- \(v) sum(abs(gwr_log_sf[[paste0(v, "_TV")]]) > t_crit)
+adj_share <- sig_tbl[["Share significant, adjusted"]]
+share_area <- round(100 * adj_share[sig_tbl$Coefficient == "AREA_SQM"])
+share_min <- round(100 * min(adj_share[sig_tbl$Coefficient != "AREA_SQM"]))
+share_max <- round(100 * max(adj_share[sig_tbl$Coefficient != "AREA_SQM"]))
+```
+
+After the adjustment, only floor area is significant almost everywhere, at `r share_area`% of the
+transactions, with a local effect of 0.2% to 0.6% per square metre. The Monte Carlo p-value of floor
+area, `r round(mc_test["AREA_SQM", 1], 2)`, is consistent with variation no larger than in permuted
+data. A single global coefficient of 0.48% per square metre (section 4.1) may therefore be
+sufficient. The coefficients that do vary are significant only in parts of the island,
+at `r share_min`% to `r share_max`% of the transactions. Without the adjustment, the share of
+significant transactions for each coefficient that varies is about three times as large or more.
+
+On the four maps:
+
+- **`FREEHOLD`** is significant at `r n_sig("FREEHOLD")` transactions, all positive. The median
+  freehold premium is `r area_med("FREEHOLD", "TANGLIN")`% in
+  Tanglin, `r area_med("FREEHOLD", "RIVER VALLEY")`% in River Valley
+  and `r area_med("FREEHOLD", "BUKIT MERAH")`% in Bukit Merah, against the
+  global `r round(pct(cl["FREEHOLD"]))`% of section 4.1, and `r area_med("FREEHOLD", "BEDOK")`% in
+  Bedok. The premium is largest in the central area. The Central Region
+  contains `r sum(condo_pa$FREEHOLD == 1 & condo_pa$REGION_N == "CENTRAL REGION")` of
+  the `r sum(condo_pa$FREEHOLD == 1)` freehold units in the data.
+- **`PROX_MRT`** is significant at `r n_sig("PROX_MRT")` transactions, almost all negative, in
+  Novena, Tanglin, River Valley, Newton and Clementi. There, each additional kilometre from a
+  station is associated with a price about half as high (median `r area_med("PROX_MRT", "NOVENA")`%
+  in Novena), against `r round(pct(cl["PROX_MRT"]))`% globally.
+- **`PROX_CBD`** is significant at `r n_sig("PROX_CBD")` transactions. In the east the coefficient
+  is negative, a median of `r area_med("PROX_CBD", "BEDOK")`% per kilometre in Bedok. In Clementi
+  the coefficient is positive, a median of `r area_med("PROX_CBD", "CLEMENTI")`% per kilometre. A
+  price that nearly triples with each kilometre from the CBD is unlikely to reflect distance alone.
+  Clementi is also the area where `PROX_MRT` has its largest negative effect. The local collinearity
+  described in section 4.4 may account for the positive `PROX_CBD` and the large negative `PROX_MRT`
+  coefficients there.
+- **`PROX_PARK`** is significant at `r n_sig("PROX_PARK")` transactions, positive in Bedok and
+  negative in Clementi, Tampines and Bukit Timah. The global coefficient of section 4.1 averages
+  these opposite local effects.
+
+On the maps, the question of slide 4, why central units sold for more, is answered only in part. The
+freehold premium and the price decrease per kilometre from an MRT station are larger in the central
+area than elsewhere. The larger central effects may be one reason central units sell for more. The
+effect of floor area does not vary significantly across the island.
+
+# Reflection
+
+The aim of chapter 13 is to explain why some condominium units sold for more than others, and why
+central units sold for more. On this page, the effect of the same features on the price differs by
+location, with qualifications that the chapter does not raise.
+
+**Log scale of the price.** The chapter computes the log of the price, and its models use the price
+in dollars. In dollars, the residuals are skewed, heavy-tailed, U-shaped against the fitted price
+and more spread out for expensive units. In logs, the U-shape and the long upper tail are no longer
+present, and the spread remains. Each coefficient is then a percentage effect, the measure a buyer
+uses to compare a unit of 1 million dollars with a unit of 5 million dollars.
+
+**Local collinearity.** An intercept of −135 million dollars, or a fall of 44 million dollars per
+kilometre from an MRT station, occurs where the local condition number is highest. Within a
+neighbourhood of 30 transactions, the median coefficient of variation of distance to the CBD
+is `r round(median(cbd_local_cv), 3)`, and that variable is collinear with the intercept. The local
+condition numbers have a median of `r round(median(cn))` and
+reach `r format(round(max(cn)), big.mark = ",")`, against the threshold of 30 of Gollini et al.
+(2015). Slide 38 shows intercepts down to −150 million dollars. A wider bisquare kernel on the log
+scale narrows the range of most coefficients. Every local model remains more collinear than the
+global model. In Clementi, distance to the CBD still has a median effect of about +200% per
+kilometre.
+
+**Variation of the coefficients.** In the Monte Carlo test of Brunsdon, Fotheringham and Charlton
+(1996), `r length(mc_sig)` of the 15 coefficients vary significantly at the 5% level. A mixed GWR
+(Brunsdon et al., 1999) could give floor area and age a single global coefficient.
+
+**Adjusted significance threshold.** With 1,436 local tests per coefficient, the adjustment of
+Byrne, Charlton and Fotheringham (2009) raises the critical |t| from about 1.96 for a single test to
+about `r round(qt(1 - alpha_fb / 2, gwr.log$GW.diagnostic$edf), 1)`.
+
+As in chapters 9 to 12, four steps in the chapter ran without error and without the effect described
+in the surrounding text:
+
+- `LOG_SELLING_PRICE` was computed, and every model in the chapter uses `SELLING_PRICE`;
+- the GWR maps were written with `eval: false` in `tmap` 3 syntax, so no map of the GWR results
+  appears on the chapter's page;
+- `global_moran_perm()` returned a p-value of 0, printed as "< 2.2e-16";
+- the condition number was described from the ArcGIS help page "Interpreting GWR results", and the
+  chapter computes no condition number from the data.
+
+**Limits.** The data are one year of resales, 2015. Heteroscedasticity remains on the log scale.
+Floor level, view and developer are missing from the model, and their omission may account for part
+of the lower local R² in the Central Region (section 3.3.6). Mixed GWR and GW ridge regression, the
+remedies described in the readings for global coefficients and local collinearity, are not fitted
+here.
+
+# References
+
+Course materials:
+
+- Kam, T.S. (2026). *Lesson 9: Geographically Weighted Regression*. ISSS626 Geospatial Analytics and
+  Applications, SMU. Slide deck dated 27 October 2026 (AY2026-27).
+- Kam, T.S. (2026). [*R for Geospatial Data Science and Analytics*, Chapter 13: Calibrating Hedonic
+  Pricing Model for Private Highrise Property with GWR
+  Method](https://r4gdsa.netlify.app/chap13.html).
+
+Assigned self-reading:
+
+- Brunsdon, C., Fotheringham, A.S. and Charlton, M.E. (1996). "Geographically Weighted Regression: A
+  Method for Exploring Spatial Nonstationarity". *Geographical Analysis*, 28(4), 281-298.
+- Brunsdon, C., Fotheringham, A.S. and Charlton, M. (1999). "Some Notes on Parametric Significance
+  Tests for Geographically Weighted Regression". *Journal of Regional Science*, 39(3), 497-524.
+
+References listed in the Lesson 9 outline:
+
+- Mennis, J. (2006). "Mapping the Results of Geographically Weighted Regression". *The Cartographic
+  Journal*, 43(2), 171-179.
+- Matthews, S.A. and Yang, T.-C. (2012). "Mapping the results of local statistics: Using
+  geographically weighted regression". *Demographic Research*, 26(6), 151-166.
+
+All About R, linked from the Lesson 9 outline:
+
+- Gollini, I., Lu, B., Charlton, M., Brunsdon, C. and Harris, P. (2015). "GWmodel: An R Package for
+  Exploring Spatial Heterogeneity Using Geographically Weighted Models". *Journal of Statistical
+  Software*, 63(17), 1-50.
+- Lu, B., Harris, P., Charlton, M. and Brunsdon, C. (2014). "The GWmodel R package: further topics
+  for exploring spatial heterogeneity using geographically weighted models". *Geo-spatial
+  Information Science*, 17(2), 85-101.
+
+Methods referred to:
+
+- Byrne, G., Charlton, M. and Fotheringham, S. (2009). "Multiple dependent hypothesis tests in
+  geographically weighted regression". In *Proceedings of the 10th International Conference on
+  GeoComputation*, Sydney. Cited in Matthews and Yang (2012) and Lu et al. (2014).
+- Esri. *Interpreting GWR results*. ArcMap 10.8 help, Spatial Statistics toolbox. The source of the
+  list of GWR outputs in chapter section 13.9.3.
+- Friendly, M. (2002). "Corrgrams: Exploratory displays for correlation matrices". *The American
+  Statistician*, 56(4), 316-324. Cited in chapter 13 for the AOE order.
+
+# About this document
+
+This page was written and executed in Quarto with R `r getRversion()`,
+`GWmodel` `r packageVersion("GWmodel")`, `sfdep` `r packageVersion("sfdep")`,
+`performance` `r packageVersion("performance")` and `tmap` `r packageVersion("tmap")`. All figures
+and tables are generated at render time from the data in `data/`.
+
+I used AI assistance while working out the approach and the extensions in Part 2. The analysis was
+run and checked by me.
